@@ -2,56 +2,69 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ShoppingCart, Users, Package, Wrench } from "lucide-react";
 import { Title } from "@/components";
+import {
+  ListChecks,
+  MapPin,
+  Tags,
+  Percent,
+} from "lucide-react";
 
-// Puedes mover esto a un archivo de config si quieres reutilizarlo
-const menuItems = [
+type Item = {
+  title: string;
+  subtitle: string;
+  href: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  accent: string;
+  ring: string;
+};
+
+const mantenimientoItems: Item[] = [
   {
-    title: "Órdenes",
-    subtitle: "Gestiona y rastrea pedidos",
-    href: "/ordenes",
-    Icon: ShoppingCart,
+    title: "Ajustes Factura",
+    subtitle: "Descuentos e impuestos",
+    href: "/mantenimiento/ajustes-factura",
+    Icon: Percent,
     accent: "from-emerald-500/15 to-emerald-500/5",
     ring: "focus-visible:ring-emerald-500/40",
   },
   {
-    title: "Usuarios",
-    subtitle: "Crea, edita y asigna roles",
-    href: "/usuarios",
-    Icon: Users,
-    accent: "from-blue-500/15 to-blue-500/5",
-    ring: "focus-visible:ring-blue-500/40",
+    title: "Status de pedidos",
+    subtitle: "Estados, flujos y visibilidad",
+    href: "/mantenimiento/status-pedidos",
+    Icon: ListChecks,
+    accent: "from-violet-500/15 to-violet-500/5",
+    ring: "focus-visible:ring-violet-500/40",
   },
   {
-    title: "Productos",
-    subtitle: "Catálogo, precios y stock",
-    href: "/productos",
-    Icon: Package,
+    title: "Colonias",
+    subtitle: "Zonas de entrega y catálogos",
+    href: "/mantenimiento/colonias",
+    Icon: MapPin,
     accent: "from-amber-500/15 to-amber-500/5",
     ring: "focus-visible:ring-amber-500/40",
   },
   {
-    title: "Mantenimiento",
-    subtitle: "Tareas y utilidades del sistema",
-    href: "/mantenimiento",
-    Icon: Wrench,
-    accent: "from-fuchsia-500/15 to-fuchsia-500/5",
-    ring: "focus-visible:ring-fuchsia-500/40",
+    title: "Marcas",
+    subtitle: "Catálogo y asignaciones",
+    href: "/mantenimiento/marcas",
+    Icon: Tags,
+    accent: "from-rose-500/15 to-rose-500/5",
+    ring: "focus-visible:ring-rose-500/40",
   },
 ];
 
-export default function MenuPrincipal() {
+export default function MantenimientoPage() {
   return (
     <div className="max-w-7xl mx-auto px-6 pb-8 space-y-8">
       <header className="flex items-end justify-between w-full gap-4">
         <div className="w-full">
-          <Title title="Menú" subtitle="Accesos rápidos" showBackButton />
+          <Title title="Mantenimiento" subtitle="Configuraciones del sistema" showBackButton />
         </div>
       </header>
 
-      <nav aria-label="Menú principal" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-        {menuItems.map(({ title, subtitle, href, Icon, accent, ring }) => (
+      <nav aria-label="Submenú de Mantenimiento" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+        {mantenimientoItems.map(({ title, subtitle, href, Icon, accent, ring }) => (
           <motion.div
             key={href}
             initial={{ opacity: 0, y: 8 }}
@@ -96,7 +109,6 @@ export default function MenuPrincipal() {
                 </div>
               </div>
 
-              {/* Borde luminoso al hover */}
               <div className="pointer-events-none absolute inset-0 rounded-3xl 
                               ring-0 group-hover:ring-2 group-hover:ring-black/5 transition" />
             </Link>
@@ -104,10 +116,10 @@ export default function MenuPrincipal() {
         ))}
       </nav>
 
-      {/* Variante compacta opcional (por si quieres usarla en un sidebar) */}
-      {/*
+      {/* Variante compacta opcional (sidebar) */}
+      {/* 
       <aside className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
-        {menuItems.map(({ title, href, Icon }) => (
+        {mantenimientoItems.map(({ title, href, Icon }) => (
           <Link key={href} href={href} className="group flex items-center gap-3 rounded-2xl p-3 border border-neutral-200 bg-white">
             <span className="grid place-items-center rounded-xl bg-neutral-100 p-2">
               <Icon className="h-5 w-5" />

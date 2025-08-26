@@ -1,7 +1,6 @@
 "use client";
 
-import { Subtitle, Title } from "@/components";
-import { motion } from "framer-motion";
+import { MenuCard, MenuGrid, Subtitle, Title } from "@/components";
 import {
   ShoppingCart,
   Loader2,
@@ -12,7 +11,6 @@ import {
   Wrench,
   Home,
 } from "lucide-react";
-import Link from "next/link";
 import React from "react";
 
 const numberFmt = new Intl.NumberFormat("es-HN");
@@ -94,10 +92,10 @@ export default function HomePage() {
     <div className="max-w-7xl mx-auto px-5 pb-0 space-y-6">
       <header className="flex items-end justify-between w-full gap-4">
         <div className="w-full">
-          <Title 
+          <Title
             title="Menu Principal"
-              subtitle="Bienvenido de nuevo!"
-            icon={<Home className="h-5 w-5" />} 
+            subtitle="Bienvenido de nuevo!"
+            icon={<Home className="h-5 w-5" />}
           />
         </div>
       </header>
@@ -125,60 +123,21 @@ export default function HomePage() {
       </section>
       <Subtitle text="Accesos Rápidos" className="pt-1" />
       {/* Menú principal (tarjetas más bajas y paddings reducidos) */}
-      <nav
-        aria-label="Menú principal"
-        className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-5"
-      >
+      <MenuGrid count={menuItems.length}>
+
         {menuItems.map(({ title, subtitle, href, Icon, accent, ring }) => (
-          <motion.div
-            key={href}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-          >
-            <Link
-              href={href}
-              className={`group block rounded-3xl border border-neutral-200 bg-white shadow-sm overflow-hidden focus-visible:outline-none ${ring}`}
-            >
-              <div
-                className={`relative h-20 w-full bg-gradient-to-br ${accent} flex items-center justify-center`}
-              >
-                <div className="absolute inset-0 opacity-[0.04] bg-[radial-gradient(40rem_40rem_at_120%_-10%,#000,transparent)]" />
-                <div className="grid place-items-center rounded-2xl bg-neutral-900/5 backdrop-blur-sm p-3 shadow-inner group-hover:scale-[1.03] transition-transform">
-                  <Icon className="h-8 w-8" />
-                </div>
-              </div>
-
-              <div className="p-4">
-                <h3 className="text-base font-semibold tracking-tight">
-                  {title}
-                </h3>
-                <p className="mt-1 text-sm text-neutral-600">{subtitle}</p>
-
-                <div className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-neutral-700">
-                  Entrar
-                  <svg
-                    className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Borde luminoso al hover */}
-              <div className="pointer-events-none absolute inset-0 rounded-3xl ring-0 group-hover:ring-2 group-hover:ring-black/5 transition" />
-            </Link>
-          </motion.div>
+          <MenuCard
+          key={href}
+          title={title}
+          subtitle={subtitle}
+          href={href}
+          Icon={Icon}
+          accent={accent}
+          ring={ring}
+          />
         ))}
-      </nav>
+
+        </MenuGrid>
     </div>
   );
 }

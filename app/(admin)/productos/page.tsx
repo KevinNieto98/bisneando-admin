@@ -32,7 +32,7 @@ export default function MenuProductos() {
           <Title 
             title="Productos" 
             subtitle="Elige una opción" 
-            backHref="/menu"
+            backHref="/"
             showBackButton />
         </div>
       </header>

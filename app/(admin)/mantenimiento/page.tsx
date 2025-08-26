@@ -59,7 +59,12 @@ export default function MantenimientoPage() {
     <div className="max-w-7xl mx-auto px-6 pb-8 space-y-8">
       <header className="flex items-end justify-between w-full gap-4">
         <div className="w-full">
-          <Title title="Mantenimiento" subtitle="Configuraciones del sistema" showBackButton />
+          <Title 
+            title="Mantenimiento" 
+            subtitle="Configuraciones del sistema" 
+            showBackButton 
+            backHref="/"
+          />
         </div>
       </header>
 

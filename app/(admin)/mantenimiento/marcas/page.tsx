@@ -119,9 +119,6 @@ export default function MarcasPage() {
     setOpen(true);
   };
 
-  const handleDelete = (id: number) => {
-    setData((prev) => prev.filter((m) => m.id_marca !== id));
-  };
 
   const handleToggleDisponible = (id: number, next?: boolean) => {
     setData((prev) =>
@@ -226,13 +223,6 @@ export default function MarcasPage() {
               aria-label="Editar"
             >
               <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleDelete(row.id_marca)}
-              className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
-              aria-label="Eliminar"
-            >
-              <Trash2 className="w-4 h-4" />
             </button>
           </>
         )}

@@ -1,19 +1,12 @@
-// /app/productos/page.tsx
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Boxes, Search } from "lucide-react";
-import { ProductGridItem, Title, UIProduct } from "@/components"; // ajusta si es otra ruta
-
+import { Boxes, Search, XCircle } from "lucide-react"; // 👈 añadí XCircle para el ícono
+import { ProductGridItem, Title, UIProduct } from "@/components";
 import { initialData } from "@/seed/seed";
 
-// importa tu seed tal cual la compartiste
-// p. ej. /seed/initialData.ts
-
-// Tipos del seed (si los exportas, impórtalos; si no, infiérelo del objeto)
 type SeedProduct = (typeof initialData)["products"][number];
 
-// Adaptador: SeedProduct -> UIProduct
 const toUIProduct = (p: SeedProduct): UIProduct => ({
   slug: p.slug,
   title: p.title,
@@ -26,38 +19,43 @@ const toUIProduct = (p: SeedProduct): UIProduct => ({
 });
 
 export default function ProductosPage() {
-  // Carga inicial desde seed adaptando a la UI
   const [products, setProducts] = useState<UIProduct[]>(
     initialData.products.map(toUIProduct)
   );
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("Todas");
+  const [status, setStatus] = useState<string>("Todos");
   const [page, setPage] = useState(1);
   const pageSize = 12;
 
-  // categorías únicas (desde seed.category)
   const categories = useMemo(() => {
     const set = new Set<string>(products.map((p) => p.category || "Sin categoría"));
     return ["Todas", ...Array.from(set)];
   }, [products]);
 
-  // filtro texto + categoría (incluye brand y slug; si quieres, agrega tags del seed)
+  // 🔎 filtros
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products.filter((p) => {
       const matchesQuery = !q
         ? true
         : [p.title, p.brand, p.slug]
-            .filter(Boolean)
-            .some((s) => String(s).toLowerCase().includes(q));
+          .filter(Boolean)
+          .some((s) => String(s).toLowerCase().includes(q));
+
       const matchesCategory =
         category === "Todas" || (p.category || "Sin categoría") === category;
-      return matchesQuery && matchesCategory;
-    });
-  }, [products, query, category]);
 
-  // paginación
+      const matchesStatus =
+        status === "Todos" ||
+        (status === "Activos" && p.active) ||
+        (status === "Inactivos" && !p.active);
+
+      return matchesQuery && matchesCategory && matchesStatus;
+    });
+  }, [products, query, category, status]);
+
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -66,11 +64,17 @@ export default function ProductosPage() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, currentPage]);
 
-  // toggle activo/inactivo
   const handleToggleActive = (slug: string, next: boolean) => {
     setProducts((prev) =>
       prev.map((p) => (p.slug === slug ? { ...p, active: next } : p))
     );
+  };
+
+  const handleClearFilters = () => {
+    setQuery("");
+    setCategory("Todas");
+    setStatus("Todos");
+    setPage(1);
   };
 
   return (
@@ -79,26 +83,45 @@ export default function ProductosPage() {
         title="Productos"
         subtitle="Explora, busca y gestiona tus productos"
         showBackButton
-        backHref="/"
+        backHref="/productos"
         icon={<Boxes className="h-6 w-6 text-neutral-700" />}
       />
 
-      {/* toolbar: buscador + categorías */}
-      <div className="mt-2 mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="relative sm:col-span-2">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
-            placeholder="Buscar por título, marca o slug..."
-            className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
-          />
+      {/* toolbar: buscador + categoría + estado + limpiar */}
+      <div className="mt-2 mb-4 grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3">
+        {/* Buscador */}
+        <div className="sm:col-span-2 md:col-span-2">
+          <label
+            htmlFor="filtro-busqueda"
+            className="block text-xs font-medium text-neutral-600 mb-1"
+          >
+            Búsqueda
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500 pointer-events-none" />
+            <input
+              id="filtro-busqueda"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Buscar por título, marca o slug..."
+              className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
+            />
+          </div>
         </div>
+
+        {/* Categoría */}
         <div>
+          <label
+            htmlFor="filtro-categoria"
+            className="block text-xs font-medium text-neutral-600 mb-1"
+          >
+            Categoría
+          </label>
           <select
+            id="filtro-categoria"
             value={category}
             onChange={(e) => {
               setCategory(e.target.value);
@@ -112,6 +135,40 @@ export default function ProductosPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Estado */}
+        <div>
+          <label
+            htmlFor="filtro-estado"
+            className="block text-xs font-medium text-neutral-600 mb-1"
+          >
+            Estado
+          </label>
+          <select
+            id="filtro-estado"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+            className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
+          >
+            <option value="Todos">Todos</option>
+            <option value="Activos">Activos</option>
+            <option value="Inactivos">Inactivos</option>
+          </select>
+        </div>
+
+        {/* Botón limpiar */}
+        <div className="flex items-end">
+          <button
+            onClick={handleClearFilters}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-red-500 px-3 py-2 text-sm text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/50"
+          >
+            <XCircle className="h-4 w-4" />
+            Limpiar filtros
+          </button>
         </div>
       </div>
 

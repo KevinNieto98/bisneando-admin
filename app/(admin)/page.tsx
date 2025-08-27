@@ -10,6 +10,8 @@ import {
   Package,
   Wrench,
   Home,
+  Tags,
+  Layers,
 } from "lucide-react";
 import React from "react";
 
@@ -40,6 +42,22 @@ const menuItems = [
     Icon: Package,
     accent: "from-amber-500/15 to-amber-500/5",
     ring: "focus-visible:ring-amber-500/40",
+  },
+  {
+    title: "Categorias",
+    subtitle: "Catálogo de Categorías",
+    href: "/categorias",
+    Icon: Tags,
+    accent: "from-amber-500/15 to-amber-500/5",
+    ring: "focus-visible:ring-amber-500/40",
+  },
+  {
+    title: "Subcategorias",
+    subtitle: "Organiza tu catálogo",
+    href: "/subcategorias",
+    Icon: Layers,
+    accent: "from-emerald-500/15 to-emerald-500/5",
+    ring: "focus-visible:ring-emerald-500/40",
   },
   {
     title: "Mantenimiento",

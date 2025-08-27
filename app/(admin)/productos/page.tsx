@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, FileSpreadsheet } from "lucide-react";
+import { Boxes, FileCheck2, FileEdit, FileSpreadsheet } from "lucide-react";
 import { MenuCard, MenuGrid, Title } from "@/components";
 
 const menuItems = [
@@ -20,6 +20,14 @@ const menuItems = [
     accent: "from-emerald-500/15 to-emerald-500/5",
     ring: "focus-visible:ring-emerald-500/40",
   },
+{
+  title: "Pendientes",
+  subtitle: "Añadele imagenes al producto",
+  href: "/productos/pendientes",
+  Icon: FileCheck2,   // 👈 mejor transmite "productos incompletos que necesitan edición"
+  accent: "from-emerald-500/15 to-emerald-500/5",
+  ring: "focus-visible:ring-emerald-500/40",
+}
 ];
 
 export default function MenuProductos() {

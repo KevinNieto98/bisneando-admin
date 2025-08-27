@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Pencil, Trash2, Plus, Tag, Search } from "lucide-react";
+import { Pencil, Plus, Tag, Search } from "lucide-react";
 import { Modal, Switch, Table, Title } from "@/components";
 
 // Si tu módulo "@/components" exporta el tipo Column, usa esta línea:

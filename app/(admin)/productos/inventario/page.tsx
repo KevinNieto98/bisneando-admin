@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Boxes, Search, XCircle } from "lucide-react"; // 👈 añadí XCircle para el ícono
+import { Boxes, Search, XCircle } from "lucide-react";
 import { ProductGridItem, Title, UIProduct } from "@/components";
 import { initialData } from "@/seed/seed";
 
 type SeedProduct = (typeof initialData)["products"][number];
 
-const toUIProduct = (p: SeedProduct): UIProduct => ({
+// 👇 convierte el seed a UIProduct con ID (si no hay en el seed, lo generamos)
+const toUIProduct = (p: SeedProduct, idx: number): UIProduct => ({
+  id: (p as any).id ?? (p as any)._id ?? idx + 1, // 👈 toma id / _id o genera
   slug: p.slug,
   title: p.title,
   price: p.price,
@@ -41,8 +43,8 @@ export default function ProductosPage() {
       const matchesQuery = !q
         ? true
         : [p.title, p.brand, p.slug]
-          .filter(Boolean)
-          .some((s) => String(s).toLowerCase().includes(q));
+            .filter(Boolean)
+            .some((s) => String(s).toLowerCase().includes(q));
 
       const matchesCategory =
         category === "Todas" || (p.category || "Sin categoría") === category;
@@ -64,9 +66,10 @@ export default function ProductosPage() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, currentPage]);
 
-  const handleToggleActive = (slug: string, next: boolean) => {
+  // 👇 ahora trabaja por id
+  const handleToggleActive = (id: UIProduct["id"], next: boolean) => {
     setProducts((prev) =>
-      prev.map((p) => (p.slug === slug ? { ...p, active: next } : p))
+      prev.map((p) => (p.id === id ? { ...p, active: next } : p))
     );
   };
 
@@ -181,7 +184,7 @@ export default function ProductosPage() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pageSlice.map((p) => (
             <ProductGridItem
-              key={p.slug}
+              key={p.id}                         // 👈 usa id
               product={p}
               onToggleActive={handleToggleActive}
             />

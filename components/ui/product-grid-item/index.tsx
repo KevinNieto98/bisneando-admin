@@ -7,20 +7,21 @@ import React, { useMemo, useState } from "react";
 import { Switch } from "@/components";
 
 export interface UIProduct {
+  id: string | number;
   slug: string;
   title: string;
   price: number;
   images: string[];
   brand?: string;
-  quantity: number;   // stock
-  active: boolean;    // activo/inactivo
-  category?: string;  // opcional para filtros
+  quantity: number;
+  active: boolean;
+  category?: string;
 }
 
 interface Props {
   product: UIProduct;
   className?: string;
-  onToggleActive?: (slug: string, next: boolean) => void;
+  onToggleActive?: (id: UIProduct["id"], next: boolean) => void;
 }
 
 const usePrice = (value: number) =>
@@ -34,15 +35,33 @@ const usePrice = (value: number) =>
     [value]
   );
 
+// Resuelve la ruta a mostrar: si viene un nombre de archivo => /products/<nombre>
+// si ya es absoluta (/algo.png o http...), la respeta tal cual.
+const resolveSrc = (nameOrPath: string) => {
+  if (!nameOrPath) return "";
+  if (nameOrPath.startsWith("/") || nameOrPath.startsWith("http")) {
+    return nameOrPath;
+  }
+  return `/products/${nameOrPath}`;
+};
+
 export const ProductGridItem: React.FC<Props> = ({
   product,
   className = "",
   onToggleActive,
 }) => {
-  const [displayImage, setDisplayImage] = useState(
-    product.images?.[0] ?? "placeholder.png"
+  // Fallback ABSOLUTO en /public
+  const defaultSrc = "/not_available.png";
+
+  const first = product.images?.[0];
+  const second = product.images?.[1];
+
+  // Guardamos SIEMPRE la ruta lista para <Image />
+  const [displaySrc, setDisplaySrc] = useState<string>(
+    first ? resolveSrc(first) : defaultSrc
   );
-  const hasSecond = Boolean(product.images?.[1]);
+
+  const hasSecond = Boolean(second);
   const price = usePrice(product.price);
   const inactive = !product.active;
 
@@ -57,23 +76,22 @@ export const ProductGridItem: React.FC<Props> = ({
       ].join(" ")}
     >
       <Link
-        href={inactive ? "#" : `/product/${product.slug}`}
+        href={`/productos/${product.id}`}
         className="block focus:outline-none flex-1"
         aria-label={`Ver detalles de ${product.title}`}
-        onClick={(e) => inactive && e.preventDefault()}
-        aria-disabled={inactive}
       >
         <div className="relative aspect-[4/3] w-full h-48 md:h-64">
           <Image
-            src={`/products/${displayImage}`}
+            src={displaySrc}
             alt={product.title}
             fill
             sizes="(max-width: 768px) 100vw, 33vw"
             className="object-cover transition duration-500 ease-out will-change-transform"
-            onMouseEnter={() => hasSecond && setDisplayImage(product.images![1])}
+            onMouseEnter={() => hasSecond && setDisplaySrc(resolveSrc(second!))}
             onMouseLeave={() =>
-              setDisplayImage(product.images?.[0] ?? "placeholder.png")
+              setDisplaySrc(first ? resolveSrc(first) : defaultSrc)
             }
+            onError={() => setDisplaySrc(defaultSrc)} // 👈 caída segura a default
           />
 
           <div
@@ -81,7 +99,7 @@ export const ProductGridItem: React.FC<Props> = ({
             aria-hidden
           />
 
-          {!inactive && (
+          {product.active && (
             <div className="absolute inset-x-3 bottom-3 flex justify-end opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 translate-y-2">
               <span className="inline-flex items-center gap-2 rounded-xl bg-white/95 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-md backdrop-blur">
                 Ver detalles
@@ -99,18 +117,15 @@ export const ProductGridItem: React.FC<Props> = ({
             </div>
           )}
           <Link
-            href={inactive ? "#" : `/product/${product.slug}`}
-            onClick={(e) => inactive && e.preventDefault()}
+            href={`/productos/${product.id}`}
             className="line-clamp-2 text-sm font-medium text-zinc-700 transition-colors hover:text-blue-600"
             title={product.title}
-            aria-disabled={inactive}
           >
             {product.title}
           </Link>
           <div className="mt-1 text-sm font-semibold tracking-tight text-zinc-800">
             {price}
           </div>
-
           <div className="mt-1 text-xs text-zinc-600">
             Stock: <span className="font-medium text-zinc-800">{product.quantity}</span>
           </div>
@@ -119,7 +134,7 @@ export const ProductGridItem: React.FC<Props> = ({
         <div className="flex flex-col items-end gap-1">
           <Switch
             checked={product.active}
-            onChange={(next) => onToggleActive?.(product.slug, next)}
+            onChange={(next) => onToggleActive?.(product.id, next)}
             ariaLabel={product.active ? "Desactivar producto" : "Activar producto"}
           />
           <span className="text-[10px] font-medium text-zinc-600">
@@ -129,7 +144,10 @@ export const ProductGridItem: React.FC<Props> = ({
       </div>
 
       {inactive && (
-        <div className="pointer-events-none absolute inset-0 rounded-2xl bg-white/50" aria-hidden />
+        <div
+          className="pointer-events-none absolute inset-0 rounded-2xl bg-white/50"
+          aria-hidden
+        />
       )}
     </div>
   );

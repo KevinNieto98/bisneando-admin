@@ -142,5 +142,21 @@ export const initialData: SeedData = {
       brand: 'Amazon',
       specs: { voiceAssistant: 'Alexa', wifi: true, bt: true },
     },
+    {
+      id_producto: 7,
+      title: 'Prueba',
+      description:
+        'Altavoz inteligente con diseño moderno y sonido de calidad. Controla dispositivos, escucha música, obtén noticias y realiza tareas con solo usar tu voz gracias a Alexa.',
+      images: [],
+      inStock: 2,
+      price: 1480,
+      slug: 'amazon-echo-pop-6',
+      tags: ['tecnologia', 'altavoz', 'alexa', 'smart-speaker'],
+      isActive: true,
+      category: 'technology',
+      subcategory: 'smart-speakers',
+      brand: 'Amazon',
+      specs: { voiceAssistant: 'Alexa', wifi: true, bt: true },
+    },
   ],
 };

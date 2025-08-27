@@ -13,6 +13,7 @@ import {
   Tags,
   Layers,
 } from "lucide-react";
+import Link from "next/link";
 import React from "react";
 
 const numberFmt = new Intl.NumberFormat("es-HN");
@@ -91,12 +92,12 @@ function StatsCard({ title, value, Icon, href }: StatsCardProps) {
         </div>
       </div>
       <div className="px-4 pb-4">
-        <a
+        <Link
           href={href}
           className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-sm font-medium hover:bg-neutral-100 transition"
         >
           Ir <ArrowRight className="w-4 h-4" />
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -124,19 +125,19 @@ export default function HomePage() {
           title="Órdenes Nuevas"
           value={stats.nuevas}
           Icon={ShoppingCart}
-          href="/ordenes?estado=nueva"
+          href="/ordenes/en-proceso?estado=nueva"
         />
         <StatsCard
           title="Órdenes en Proceso"
           value={stats.enProceso}
           Icon={Loader2}
-          href="/ordenes?estado=proceso"
+          href="/ordenes/en-proceso?estado=proceso"
         />
         <StatsCard
           title="Órdenes Finalizadas"
           value={stats.finalizadas}
           Icon={CheckCircle2}
-          href="/ordenes?estado=finalizada"
+          href="/ordenes/en-proceso?estado=finalizada"
         />
       </section>
       <Subtitle text="Accesos Rápidos" className="pt-1" />
@@ -145,17 +146,17 @@ export default function HomePage() {
 
         {menuItems.map(({ title, subtitle, href, Icon, accent, ring }) => (
           <MenuCard
-          key={href}
-          title={title}
-          subtitle={subtitle}
-          href={href}
-          Icon={Icon}
-          accent={accent}
-          ring={ring}
+            key={href}
+            title={title}
+            subtitle={subtitle}
+            href={href}
+            Icon={Icon}
+            accent={accent}
+            ring={ring}
           />
         ))}
 
-        </MenuGrid>
+      </MenuGrid>
     </div>
   );
 }

@@ -9,7 +9,7 @@ const menuItems = [
   {
     title: "Órdenes en proceso",
     subtitle: "Gestiona y rastrea pedidos",
-    href: "/ordenes",
+    href: "ordenes/en-proceso",
     Icon: ShoppingCart, // 🛒 Carrito = pedidos en curso
     accent: "from-emerald-500/15 to-emerald-500/5",
     ring: "focus-visible:ring-emerald-500/40",
@@ -17,7 +17,7 @@ const menuItems = [
   {
     title: "Histórico de Órdenes",
     subtitle: "Ver órdenes pasadas",
-    href: "/usuarios",
+    href: "ordenes/historico",
     Icon: History, // ⏱ Reloj/histórico = registros anteriores
     accent: "from-blue-500/15 to-blue-500/5",
     ring: "focus-visible:ring-blue-500/40",

@@ -1,13 +1,14 @@
-"use client";
+'use client';
 
-import React, { useMemo, useState } from "react";
-import { Pencil, Plus, Tag, Search } from "lucide-react";
-import { Modal, Switch, Table, Title } from "@/components";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Tag, Search } from 'lucide-react';
+import { Button, Modal, Switch, Table, Title } from "@/components";
+import { getMarcasAction } from "./actions";
+import { FooterModal, MarcaForm } from "./components";
+import { useUIStore } from "@/store";
 
-// Si tu módulo "@/components" exporta el tipo Column, usa esta línea:
+// Si tu módulo "@/components" exporta el tipo Column, usa:
 // import { Table, Title, type Column } from "@/components";
-
-// Si NO exportas Column desde "@/components", deja este tipo local:
 type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
@@ -19,119 +20,84 @@ type Column<T> = {
 interface Marca {
   id_marca: number;
   nombre_marca: string;
-  disponible: boolean;
+  is_active: boolean;
 }
 
-// Datos de ejemplo (reemplazar con fetch/DB)
-const initialData: Marca[] = [
-  { id_marca: 1, nombre_marca: "Acme", disponible: true },
-  { id_marca: 2, nombre_marca: "Globex", disponible: false },
-  { id_marca: 3, nombre_marca: "Initech", disponible: true },
-];
-
-/** Formulario para crear/editar (sin botones; el submit lo maneja el footer del modal) */
-function MarcaForm({
-  value,
-  onChange,
-  onSubmit,
-  formId = "marca-form",
-}: {
-  value: Marca;
-  onChange: (next: Marca) => void;
-  onSubmit: () => void;
-  formId?: string;
-}) {
-  const [touched, setTouched] = useState(false);
-  const nombreValido = value.nombre_marca.trim().length >= 2;
-
+// Type guard para asegurar que `editing` es Marca
+function isMarca(v: unknown): v is Marca {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
   return (
-    <form
-      id={formId}
-      onSubmit={(e) => {
-        e.preventDefault();
-        setTouched(true);
-        if (!nombreValido) return;
-        onSubmit();
-      }}
-      className="space-y-4"
-    >
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-neutral-700">
-          Nombre de la marca
-        </label>
-        <input
-          autoFocus
-          value={value.nombre_marca}
-          onChange={(e) =>
-            onChange({ ...value, nombre_marca: e.target.value })
-          }
-          placeholder="Ej. Acme"
-          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400"
-        />
-        {touched && !nombreValido && (
-          <p className="text-xs text-red-600">
-            Debe tener al menos 2 caracteres.
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={value.disponible}
-          onChange={(next) => onChange({ ...value, disponible: next })}
-          ariaLabel="Cambiar disponibilidad"
-        />
-        <span className="text-sm font-medium text-neutral-700">
-          {value.disponible ? "Disponible" : "No disponible"}
-        </span>
-      </div>
-    </form>
+    typeof o.id_marca === 'number' &&
+    typeof o.nombre_marca === 'string' &&
+    typeof o.is_active === 'boolean'
   );
 }
 
 export default function MarcasPage() {
-  const [data, setData] = useState<Marca[]>(initialData);
-  const [query, setQuery] = useState("");
+  // Extrae del store dinámico, pero estrecha tipos localmente
+  const isModalOpen = useUIStore((s) => s.isModalOpen);
+  const openModal = useUIStore((s) => s.openModal);
+  const closeModal = useUIStore((s) => s.closeModal);
 
-  // Estado del modal y edición
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Marca | null>(null);
+  // `editing` dinámico -> lo vemos como `Marca | null` en este componente
+  const editing = useUIStore((s) => s.editing) as Marca | null;
+  const setEditing = useUIStore((s) => s.setEditing) as (v: Marca | null) => void;
+
+  const [data, setData] = useState<Marca[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const marcas = await getMarcasAction();
+        if (mounted) setData(marcas);
+      } catch (e: any) {
+        if (mounted) setError(e?.message ?? 'Error desconocido');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const formId = "marca-form";
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return data;
     return data.filter((m) =>
-      [m.id_marca.toString(), m.nombre_marca.toLowerCase()].some((s) =>
-        s.includes(q)
-      )
+      [m.id_marca.toString(), m.nombre_marca.toLowerCase()].some((s) => s.includes(q))
     );
   }, [data, query]);
 
-  // Handlers CRUD (simulados). Reemplaza con llamadas a tu API.
+  // Handlers
   const handleCreate = () => {
-    setEditing({ id_marca: nextId(data), nombre_marca: "", disponible: true });
-    setOpen(true);
+    setEditing({ id_marca: nextId(data), nombre_marca: "", is_active: true });
+    openModal();
   };
 
   const handleEdit = (m: Marca) => {
     setEditing({ ...m });
-    setOpen(true);
+    openModal();
   };
-
 
   const handleToggleDisponible = (id: number, next?: boolean) => {
     setData((prev) =>
       prev.map((m) =>
         m.id_marca === id
-          ? { ...m, disponible: typeof next === "boolean" ? next : !m.disponible }
+          ? { ...m, is_active: typeof next === "boolean" ? next : !m.is_active }
           : m
       )
     );
   };
 
   const handleSave = () => {
-    if (!editing) return;
+    if (!editing || !isMarca(editing)) return;
+
     setData((prev) => {
       const exists = prev.some((m) => m.id_marca === editing.id_marca);
       if (exists) {
@@ -139,7 +105,8 @@ export default function MarcasPage() {
       }
       return [...prev, editing];
     });
-    setOpen(false);
+
+    closeModal();
     setEditing(null);
   };
 
@@ -166,12 +133,12 @@ export default function MarcasPage() {
       cell: (row) => (
         <div className="flex items-center justify-center gap-2">
           <Switch
-            checked={row.disponible}
+            checked={row.is_active}
             onChange={(next) => handleToggleDisponible(row.id_marca, next)}
             ariaLabel={`Cambiar disponibilidad de ${row.nombre_marca}`}
           />
           <span className="text-xs font-medium text-neutral-700">
-            {row.disponible ? "Sí" : "No"}
+            {row.is_active ? "Sí" : "No"}
           </span>
         </div>
       ),
@@ -200,13 +167,15 @@ export default function MarcasPage() {
           />
         </div>
         <div className="flex gap-2">
-          <button
+
+
+          <Button
             onClick={handleCreate}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
+            icon={<Plus className="w-4 h-4" />}
+            variant="warning"
           >
-            <Plus className="w-4 h-4" />
             Nueva marca
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -217,13 +186,13 @@ export default function MarcasPage() {
         getRowId={(row) => row.id_marca}
         actions={(row: Marca) => (
           <>
-            <button
+            <Button
               onClick={() => handleEdit(row)}
-              className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
+              icon={<Pencil className="w-4 h-4" />}
+              iconOnly
+              variant="white"
               aria-label="Editar"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
+            />
           </>
         )}
         actionsHeader="Acciones"
@@ -232,9 +201,9 @@ export default function MarcasPage() {
 
       {/* Modal de creación/edición */}
       <Modal
-        open={open}
+        open={isModalOpen}
         onClose={() => {
-          setOpen(false);
+          closeModal();
           setEditing(null);
         }}
         title={editing ? "Editar marca" : "Nueva marca"}
@@ -250,24 +219,7 @@ export default function MarcasPage() {
           )
         }
         footer={
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => {
-                setOpen(false);
-                setEditing(null);
-              }}
-              className="inline-flex items-center rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium hover:bg-neutral-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              form={formId}
-              className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
-            >
-              Guardar
-            </button>
-          </div>
+          <FooterModal />
         }
       />
     </div>
@@ -275,7 +227,5 @@ export default function MarcasPage() {
 }
 
 function nextId(arr: Marca[]) {
-  return (
-    (arr.reduce((max, m) => (m.id_marca > max ? m.id_marca : max), 0) || 0) + 1
-  );
+  return (arr.reduce((max, m) => (m.id_marca > max ? m.id_marca : max), 0) || 0) + 1;
 }

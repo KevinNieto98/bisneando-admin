@@ -1,46 +1,37 @@
+// src/app/(tu-ruta)/page.tsx
 'use client';
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Tag, Search } from 'lucide-react';
-import { Alert, Button, Modal, Switch, Table, TableSkeleton, Title, Pagination } from "@/components";
-import { getMarcasAction, postTMarcasAction, putMarca } from "./actions";
+import {
+  Alert,
+  Button,
+  Modal,
+  Switch,
+  Table,
+  TableSkeleton,
+  Title,
+  Pagination,
+  ModalSkeleton,
+} from "@/components";
 import { FooterModal, MarcaForm } from "./components";
 import { useUIStore } from "@/store";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-// Tipado de columnas si tu Table no exporta el tipo:
-type Column<T> = {
-  header: string;
-  cell: (row: T) => React.ReactNode;
-  align?: "left" | "center" | "right";
-  className?: string;
-};
+import {
+  Column,
+  Marca,
+  isMarca,
+  nextId,
+  useFilteredData,
+  useClientPagination,
+  useMarcasData,
+} from "./utils";
 
-// Tipos
-interface Marca {
-  id_marca: number;
-  nombre_marca: string;
-  is_active: boolean;
-}
 
-// Type guard
-function isMarca(v: unknown): v is Marca {
-  if (!v || typeof v !== 'object') return false;
-  const o = v as Record<string, unknown>;
-  return (
-    typeof o.id_marca === 'number' &&
-    typeof o.nombre_marca === 'string' &&
-    typeof o.is_active === 'boolean'
-  );
-}
-
-// Helper para crear IDs locales
-function nextId(arr: Marca[]) {
-  return (arr.reduce((max, m) => (m.id_marca > max ? m.id_marca : max), 0) || 0) + 1;
-}
 
 export default function MarcasPage() {
-  // Store UI
+  // UI store
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
   const alerta = useUIStore((s) => s.alerta);
   const openConfirm = useUIStore((s) => s.openConfirm);
@@ -52,92 +43,67 @@ export default function MarcasPage() {
   const editing = useUIStore((s) => s.editing) as Marca | null;
   const setEditing = useUIStore((s) => s.setEditing) as (v: Marca | null) => void;
 
-  // Estado de datos
-  const [data, setData] = useState<Marca[]>([]);
+  // Estado para mostrar skeleton mientras se prepara el form
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // Data
+  const {
+    data,
+    loading,
+    error,
+    toggleDisponible,
+    createMarca,
+    updateMarca,
+  } = useMarcasData();
+
+  // Búsqueda
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const filtered = useFilteredData(data, query);
 
-  // 🔢 Paginación (cliente)
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+  // Paginación
+  const PAGE_SIZE = 10;
+  const { currentPage, setCurrentPage, totalPages, pageItems: paginatedData } =
+    useClientPagination(filtered, PAGE_SIZE);
 
-  // Carga inicial
+  // 🔁 Cada vez que se abre el modal, mostramos skeleton de entrada
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const marcas = await getMarcasAction();
-        if (mounted) setData(marcas);
-      } catch (e: any) {
-        if (mounted) setError(e?.message ?? 'Error desconocido');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  const formId = "marca-form";
-
-  // Filtro por búsqueda
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return data;
-    return data.filter((m) =>
-      [m.id_marca.toString(), m.nombre_marca.toLowerCase()].some((s) => s.includes(q))
-    );
-  }, [data, query]);
-
-  // Total de páginas y datos paginados
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, currentPage]);
-
-  // Si cambia el total de páginas (por filtro o recarga), ajusta currentPage si quedó fuera de rango
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (isModalOpen) {
+      setModalLoading(true);
+    } else {
+      setModalLoading(false);
     }
-  }, [totalPages, currentPage]);
+  }, [isModalOpen]);
 
-  // Handlers CRUD
+  // Handlers
   const handleCreate = () => {
-    setEditing({ id_marca: nextId(data), nombre_marca: "", is_active: true });
+    // 1) Abrir el modal vacío (editing=null) para que se vea el skeleton YA
     openModal();
+    setModalLoading(true);
+    setEditing(null);
+
+    // 2) En el siguiente tick, setear el editing real para montar el form
+    setTimeout(() => {
+      setEditing({ id_marca: nextId(data), nombre_marca: "", is_active: true });
+      // el onReady del form apagará modalLoading
+    }, 0);
   };
 
   const handleEdit = (m: Marca) => {
-    setEditing({ ...m });
     openModal();
+    setModalLoading(true);
+    setEditing(null);
+    setTimeout(() => {
+      setEditing({ ...m });
+      // el onReady del form apagará modalLoading
+    }, 0);
   };
 
   const handleToggleDisponible = async (id: number, next?: boolean) => {
-    const current = data.find((m) => m.id_marca === id);
-    if (!current) return;
-
-    const newActive = typeof next === "boolean" ? next : !current.is_active;
-
-    // Optimistic UI
-    setData((prev) =>
-      prev.map((m) =>
-        m.id_marca === id ? { ...m, is_active: newActive } : m
-      )
-    );
-
     try {
-      await putMarca(id, current.nombre_marca, newActive);
-    } catch (error) {
-      console.error("Error al actualizar disponibilidad:", error);
-      // Rollback
-      setData((prev) =>
-        prev.map((m) =>
-          m.id_marca === id ? { ...m, is_active: current.is_active } : m
-        )
-      );
+      await toggleDisponible(id, next);
+    } catch (e) {
+      console.error("Error al actualizar disponibilidad:", e);
+      mostrarAlerta("Error", "No se pudo actualizar la disponibilidad.", "danger");
     }
   };
 
@@ -147,89 +113,86 @@ export default function MarcasPage() {
     const exists = data.some((m) => m.id_marca === editing.id_marca);
 
     openConfirm({
-      titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
+      titulo: exists ? "Confirmar actualización" : "Confirmar creación",
       mensaje: exists
         ? `¿Deseas actualizar la marca "${editing.nombre_marca}"?`
         : `¿Deseas crear la marca "${editing.nombre_marca}"?`,
-      confirmText: exists ? 'Actualizar' : 'Crear',
-      rejectText: 'Cancelar',
+      confirmText: exists ? "Actualizar" : "Crear",
+      rejectText: "Cancelar",
       onConfirm: async () => {
         await doSave({ exists });
       },
     });
   };
 
-  // Lógica de guardado (create/update)
   const doSave = async ({ exists }: { exists: boolean }) => {
-    setLoading(true);
     try {
       if (exists) {
-        await putMarca(editing!.id_marca, editing!.nombre_marca, editing!.is_active);
+        await updateMarca(editing!);
       } else {
-        await postTMarcasAction(editing!.nombre_marca, editing!.is_active);
+        await createMarca({ nombre_marca: editing!.nombre_marca, is_active: editing!.is_active });
       }
-
-      const marcas = await getMarcasAction();
-      setData(marcas);
 
       closeModal();
       setEditing(null);
 
       mostrarAlerta(
-        '¡Guardado!',
-        exists ? 'La marca se actualizó correctamente.' : 'La marca se creó correctamente.',
-        'success'
+        "¡Guardado!",
+        exists ? "La marca se actualizó correctamente." : "La marca se creó correctamente.",
+        "success"
       );
 
-      // Tras guardar, volver a la primera página para ver el cambio si hace falta
       setCurrentPage(1);
-    } catch (error) {
-      console.error('Error al guardar marca:', error);
-      mostrarAlerta('Error', 'No se pudo guardar la marca. Intenta de nuevo.', 'danger');
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error("Error al guardar marca:", e);
+      mostrarAlerta("Error", "No se pudo guardar la marca. Intenta de nuevo.", "danger");
     }
   };
 
-  // Columnas (con Switch en 'Disponible')
-  const columns: Column<Marca>[] = [
-    {
-      header: "ID",
-      className: "w-16 text-center",
-      align: "center",
-      cell: (row) => row.id_marca,
-    },
-    {
-      header: "Nombre",
-      className: "min-w-[200px] w-full text-left",
-      align: "left",
-      cell: (row) => (
-        <span className="font-medium text-neutral-900">{row.nombre_marca}</span>
-      ),
-    },
-    {
-      header: "Disponible",
-      className: "w-40 text-center",
-      align: "center",
-      cell: (row) => (
-        <div className="flex items-center justify-center gap-2">
-          <Switch
-            checked={row.is_active}
-            onChange={(next) => handleToggleDisponible(row.id_marca, next)}
-            ariaLabel={`Cambiar disponibilidad de ${row.nombre_marca}`}
-          />
-          <span className="text-xs font-medium text-neutral-700">
-            {row.is_active ? "Sí" : "No"}
-          </span>
-        </div>
-      ),
-    },
-  ];
+  // Columnas
+  const columns: Column<Marca>[] = useMemo(
+    () => [
+      {
+        header: "ID",
+        className: "w-16 text-center",
+        align: "center",
+        cell: (row) => row.id_marca,
+      },
+      {
+        header: "Nombre",
+        className: "min-w-[200px] w-full text-left",
+        align: "left",
+        cell: (row) => (
+          <span className="font-medium text-neutral-900">{row.nombre_marca}</span>
+        ),
+      },
+      {
+        header: "Disponible",
+        className: "w-40 text-center",
+        align: "center",
+        cell: (row) => (
+          <div className="flex items-center justify-center gap-2">
+            <Switch
+              checked={row.is_active}
+              onChange={(next) => handleToggleDisponible(row.id_marca, next)}
+              ariaLabel={`Cambiar disponibilidad de ${row.nombre_marca}`}
+            />
+            <span className="text-xs font-medium text-neutral-700">
+              {row.is_active ? "Sí" : "No"}
+            </span>
+          </div>
+        ),
+      },
+    ],
+    [handleToggleDisponible]
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
       <Alert title={alerta.titulo} msg={alerta.mensaje} type={alerta.tipo} />
+      {error && <Alert title="Error" msg={error} type="danger" />}
+
       <Title
         showBackButton
         backHref="/mantenimiento"
@@ -245,7 +208,7 @@ export default function MarcasPage() {
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setCurrentPage(1); // reset al buscar
+              setCurrentPage(1);
             }}
             placeholder="Buscar marca..."
             className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
@@ -287,14 +250,13 @@ export default function MarcasPage() {
       {/* Paginación */}
       <div className="mt-2 flex justify-center">
         <Pagination
-          key={`pag-${totalPages}-${currentPage}`} // fuerza sync si cambia currentPage externamente
           totalPages={totalPages}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
         />
       </div>
 
-      {/* Modal de creación/edición */}
+      {/* Modal */}
       <Modal
         open={isModalOpen}
         onClose={() => {
@@ -304,13 +266,23 @@ export default function MarcasPage() {
         title={editing ? "Editar marca" : "Nueva marca"}
         icon={<Tag className="w-5 h-5" />}
         content={
-          editing && (
-            <MarcaForm
-              value={editing}
-              onChange={setEditing}
-              onSubmit={handleSave}
-              formId={formId}
-            />
+          // 👉 Si editing es null mostramos skeleton (abre instantáneo),
+          //    luego montamos el form en el siguiente tick y onReady apaga modalLoading.
+          editing === null ? (
+            <ModalSkeleton />
+          ) : (
+            <>
+              {modalLoading && <ModalSkeleton />}
+              <div className={modalLoading ? "sr-only" : ""}>
+                <MarcaForm
+                  value={editing}
+                  onChange={setEditing}
+                  onSubmit={handleSave}
+                  formId="marca-form"
+                  onReady={() => setModalLoading(false)}
+                />
+              </div>
+            </>
           )
         }
         footer={<FooterModal />}

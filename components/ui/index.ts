@@ -17,4 +17,5 @@ export * from './sketeleton';
 export * from './table-skeleton';
 export * from './alert';
 export * from './pagination';
+export * from './modal-skeleton';
 

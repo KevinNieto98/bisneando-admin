@@ -1,6 +1,7 @@
+// src/app/(tu-ruta)/components/MarcaForm.tsx
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Switch } from '@/components' // ajusta la ruta si aplica
 
 interface Marca {
@@ -16,6 +17,8 @@ interface MarcaFormProps {
   formId?: string
   autoFocus?: boolean
   minLenNombre?: number
+  /** 🚀 Se llama cuando el formulario terminó de montarse */
+  onReady?: () => void
 }
 
 export const MarcaForm: React.FC<MarcaFormProps> = ({
@@ -25,9 +28,16 @@ export const MarcaForm: React.FC<MarcaFormProps> = ({
   formId = 'marca-form',
   autoFocus = true,
   minLenNombre = 2,
+  onReady,
 }) => {
   const [touched, setTouched] = useState(false)
   const nombreValido = (value.nombre_marca ?? '').trim().length >= minLenNombre
+
+  // Notifica al padre que el form ya está listo (montado)
+  useEffect(() => {
+    const t = setTimeout(() => onReady?.(), 0) // microtask para asegurar layout
+    return () => clearTimeout(t)
+  }, [onReady])
 
   return (
     <form

@@ -2,14 +2,13 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Tag, Search } from 'lucide-react';
-import { Alert, Button, Modal, Switch, Table, TableSkeleton, Title } from "@/components";
+import { Alert, Button, Modal, Switch, Table, TableSkeleton, Title, Pagination } from "@/components";
 import { getMarcasAction, postTMarcasAction, putMarca } from "./actions";
 import { FooterModal, MarcaForm } from "./components";
 import { useUIStore } from "@/store";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-// Si tu módulo "@/components" exporta el tipo Column, usa:
-// import { Table, Title, type Column } from "@/components";
+// Tipado de columnas si tu Table no exporta el tipo:
 type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
@@ -24,7 +23,7 @@ interface Marca {
   is_active: boolean;
 }
 
-// Type guard para asegurar que `editing` es Marca
+// Type guard
 function isMarca(v: unknown): v is Marca {
   if (!v || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
@@ -35,25 +34,35 @@ function isMarca(v: unknown): v is Marca {
   );
 }
 
+// Helper para crear IDs locales
+function nextId(arr: Marca[]) {
+  return (arr.reduce((max, m) => (m.id_marca > max ? m.id_marca : max), 0) || 0) + 1;
+}
+
 export default function MarcasPage() {
-  // Extrae del store dinámico, pero estrecha tipos localmente
+  // Store UI
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
-const alerta = useUIStore((s) => s.alerta);
-const openConfirm = useUIStore((s) => s.openConfirm);
+  const alerta = useUIStore((s) => s.alerta);
+  const openConfirm = useUIStore((s) => s.openConfirm);
 
   const isModalOpen = useUIStore((s) => s.isModalOpen);
   const openModal = useUIStore((s) => s.openModal);
   const closeModal = useUIStore((s) => s.closeModal);
 
-  // `editing` dinámico -> lo vemos como `Marca | null` en este componente
   const editing = useUIStore((s) => s.editing) as Marca | null;
   const setEditing = useUIStore((s) => s.setEditing) as (v: Marca | null) => void;
 
+  // Estado de datos
   const [data, setData] = useState<Marca[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 🔢 Paginación (cliente)
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
+  // Carga inicial
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -71,6 +80,7 @@ const openConfirm = useUIStore((s) => s.openConfirm);
 
   const formId = "marca-form";
 
+  // Filtro por búsqueda
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return data;
@@ -79,7 +89,22 @@ const openConfirm = useUIStore((s) => s.openConfirm);
     );
   }, [data, query]);
 
-  // Handlers
+  // Total de páginas y datos paginados
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage]);
+
+  // Si cambia el total de páginas (por filtro o recarga), ajusta currentPage si quedó fuera de rango
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  // Handlers CRUD
   const handleCreate = () => {
     setEditing({ id_marca: nextId(data), nombre_marca: "", is_active: true });
     openModal();
@@ -90,84 +115,81 @@ const openConfirm = useUIStore((s) => s.openConfirm);
     openModal();
   };
 
-const handleToggleDisponible = async (id: number, next?: boolean) => {
-  // 1) Encuentra la marca que vamos a editar
-  const current = data.find((m) => m.id_marca === id);
-  if (!current) return;
+  const handleToggleDisponible = async (id: number, next?: boolean) => {
+    const current = data.find((m) => m.id_marca === id);
+    if (!current) return;
 
-  // 2) Determina el nuevo valor de is_active
-  const newActive = typeof next === "boolean" ? next : !current.is_active;
+    const newActive = typeof next === "boolean" ? next : !current.is_active;
 
-  // 3) Optimistic UI (actualiza el estado local de inmediato)
-  setData((prev) =>
-    prev.map((m) =>
-      m.id_marca === id ? { ...m, is_active: newActive } : m
-    )
-  );
-
-  try {
-    // 4) Llama al update en Supabase
-    await putMarca(id, current.nombre_marca, newActive);
-  } catch (error) {
-    console.error("Error al actualizar disponibilidad:", error);
-
-    // 5) Rollback si falla (revierte al valor original)
+    // Optimistic UI
     setData((prev) =>
       prev.map((m) =>
-        m.id_marca === id ? { ...m, is_active: current.is_active } : m
+        m.id_marca === id ? { ...m, is_active: newActive } : m
       )
     );
-  }
-};
 
-
-const handleSave = async () => {
-  if (!editing || !isMarca(editing)) return;
-
-  const exists = data.some((m) => m.id_marca === editing.id_marca);
-
-  // Abrir confirm SIEMPRE (create y update)
-  openConfirm({
-    titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
-    mensaje: exists
-      ? `¿Deseas actualizar la marca "${editing.nombre_marca}"?`
-      : `¿Deseas crear la marca "${editing.nombre_marca}"?`,
-    confirmText: exists ? 'Actualizar' : 'Crear',
-    rejectText: 'Cancelar',
-    onConfirm: async () => {
-      await doSave({ exists });
-    },
-  });
-};
-
-// extrae la lógica de guardado real para reusarla desde el confirm
-async function doSave({ exists }: { exists: boolean }) {
-  setLoading(true);
-  try {
-    if (exists) {
-      await putMarca(editing!.id_marca, editing!.nombre_marca, editing!.is_active);
-    } else {
-      await postTMarcasAction(editing!.nombre_marca, editing!.is_active);
+    try {
+      await putMarca(id, current.nombre_marca, newActive);
+    } catch (error) {
+      console.error("Error al actualizar disponibilidad:", error);
+      // Rollback
+      setData((prev) =>
+        prev.map((m) =>
+          m.id_marca === id ? { ...m, is_active: current.is_active } : m
+        )
+      );
     }
+  };
 
-    const marcas = await getMarcasAction();
-    setData(marcas);
+  const handleSave = async () => {
+    if (!editing || !isMarca(editing)) return;
 
-    closeModal();
-    setEditing(null);
+    const exists = data.some((m) => m.id_marca === editing.id_marca);
 
-    mostrarAlerta(
-      '¡Guardado!',
-      exists ? 'La marca se actualizó correctamente.' : 'La marca se creó correctamente.',
-      'success'
-    );
-  } catch (error) {
-    console.error('Error al guardar marca:', error);
-    mostrarAlerta('Error', 'No se pudo guardar la marca. Intenta de nuevo.', 'danger');
-  } finally {
-    setLoading(false);
-  }
-}
+    openConfirm({
+      titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
+      mensaje: exists
+        ? `¿Deseas actualizar la marca "${editing.nombre_marca}"?`
+        : `¿Deseas crear la marca "${editing.nombre_marca}"?`,
+      confirmText: exists ? 'Actualizar' : 'Crear',
+      rejectText: 'Cancelar',
+      onConfirm: async () => {
+        await doSave({ exists });
+      },
+    });
+  };
+
+  // Lógica de guardado (create/update)
+  const doSave = async ({ exists }: { exists: boolean }) => {
+    setLoading(true);
+    try {
+      if (exists) {
+        await putMarca(editing!.id_marca, editing!.nombre_marca, editing!.is_active);
+      } else {
+        await postTMarcasAction(editing!.nombre_marca, editing!.is_active);
+      }
+
+      const marcas = await getMarcasAction();
+      setData(marcas);
+
+      closeModal();
+      setEditing(null);
+
+      mostrarAlerta(
+        '¡Guardado!',
+        exists ? 'La marca se actualizó correctamente.' : 'La marca se creó correctamente.',
+        'success'
+      );
+
+      // Tras guardar, volver a la primera página para ver el cambio si hace falta
+      setCurrentPage(1);
+    } catch (error) {
+      console.error('Error al guardar marca:', error);
+      mostrarAlerta('Error', 'No se pudo guardar la marca. Intenta de nuevo.', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Columnas (con Switch en 'Disponible')
   const columns: Column<Marca>[] = [
@@ -221,14 +243,15 @@ async function doSave({ exists }: { exists: boolean }) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1); // reset al buscar
+            }}
             placeholder="Buscar marca..."
             className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
           />
         </div>
         <div className="flex gap-2">
-
-
           <Button
             onClick={handleCreate}
             icon={<Plus className="w-4 h-4" />}
@@ -244,7 +267,7 @@ async function doSave({ exists }: { exists: boolean }) {
         <TableSkeleton rows={10} showActions />
       ) : (
         <Table
-          data={filtered}
+          data={paginatedData}
           columns={columns}
           getRowId={(row) => row.id_marca}
           actions={(row: Marca) => (
@@ -260,6 +283,16 @@ async function doSave({ exists }: { exists: boolean }) {
           ariaLabel="Tabla de marcas"
         />
       )}
+
+      {/* Paginación */}
+      <div className="mt-2 flex justify-center">
+        <Pagination
+          key={`pag-${totalPages}-${currentPage}`} // fuerza sync si cambia currentPage externamente
+          totalPages={totalPages}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+        />
+      </div>
 
       {/* Modal de creación/edición */}
       <Modal
@@ -280,15 +313,10 @@ async function doSave({ exists }: { exists: boolean }) {
             />
           )
         }
-        footer={
-          <FooterModal />
-        }
+        footer={<FooterModal />}
       />
-          <ConfirmDialog />
+
+      <ConfirmDialog />
     </div>
   );
-}
-
-function nextId(arr: Marca[]) {
-  return (arr.reduce((max, m) => (m.id_marca > max ? m.id_marca : max), 0) || 0) + 1;
 }

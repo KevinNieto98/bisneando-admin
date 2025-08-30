@@ -2,10 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Tag, Search } from 'lucide-react';
-import { Button, Modal, Switch, Table, Title } from "@/components";
-import { getMarcasAction } from "./actions";
+import { Alert, Button, Modal, Switch, Table, TableSkeleton, Title } from "@/components";
+import { getMarcasAction, postTMarcasAction, putMarca } from "./actions";
 import { FooterModal, MarcaForm } from "./components";
 import { useUIStore } from "@/store";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // Si tu módulo "@/components" exporta el tipo Column, usa:
 // import { Table, Title, type Column } from "@/components";
@@ -36,6 +37,10 @@ function isMarca(v: unknown): v is Marca {
 
 export default function MarcasPage() {
   // Extrae del store dinámico, pero estrecha tipos localmente
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
+const alerta = useUIStore((s) => s.alerta);
+const openConfirm = useUIStore((s) => s.openConfirm);
+
   const isModalOpen = useUIStore((s) => s.isModalOpen);
   const openModal = useUIStore((s) => s.openModal);
   const closeModal = useUIStore((s) => s.closeModal);
@@ -85,30 +90,84 @@ export default function MarcasPage() {
     openModal();
   };
 
-  const handleToggleDisponible = (id: number, next?: boolean) => {
+const handleToggleDisponible = async (id: number, next?: boolean) => {
+  // 1) Encuentra la marca que vamos a editar
+  const current = data.find((m) => m.id_marca === id);
+  if (!current) return;
+
+  // 2) Determina el nuevo valor de is_active
+  const newActive = typeof next === "boolean" ? next : !current.is_active;
+
+  // 3) Optimistic UI (actualiza el estado local de inmediato)
+  setData((prev) =>
+    prev.map((m) =>
+      m.id_marca === id ? { ...m, is_active: newActive } : m
+    )
+  );
+
+  try {
+    // 4) Llama al update en Supabase
+    await putMarca(id, current.nombre_marca, newActive);
+  } catch (error) {
+    console.error("Error al actualizar disponibilidad:", error);
+
+    // 5) Rollback si falla (revierte al valor original)
     setData((prev) =>
       prev.map((m) =>
-        m.id_marca === id
-          ? { ...m, is_active: typeof next === "boolean" ? next : !m.is_active }
-          : m
+        m.id_marca === id ? { ...m, is_active: current.is_active } : m
       )
     );
-  };
+  }
+};
 
-  const handleSave = () => {
-    if (!editing || !isMarca(editing)) return;
 
-    setData((prev) => {
-      const exists = prev.some((m) => m.id_marca === editing.id_marca);
-      if (exists) {
-        return prev.map((m) => (m.id_marca === editing.id_marca ? editing : m));
-      }
-      return [...prev, editing];
-    });
+const handleSave = async () => {
+  if (!editing || !isMarca(editing)) return;
+
+  const exists = data.some((m) => m.id_marca === editing.id_marca);
+
+  // Abrir confirm SIEMPRE (create y update)
+  openConfirm({
+    titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
+    mensaje: exists
+      ? `¿Deseas actualizar la marca "${editing.nombre_marca}"?`
+      : `¿Deseas crear la marca "${editing.nombre_marca}"?`,
+    confirmText: exists ? 'Actualizar' : 'Crear',
+    rejectText: 'Cancelar',
+    onConfirm: async () => {
+      await doSave({ exists });
+    },
+  });
+};
+
+// extrae la lógica de guardado real para reusarla desde el confirm
+async function doSave({ exists }: { exists: boolean }) {
+  setLoading(true);
+  try {
+    if (exists) {
+      await putMarca(editing!.id_marca, editing!.nombre_marca, editing!.is_active);
+    } else {
+      await postTMarcasAction(editing!.nombre_marca, editing!.is_active);
+    }
+
+    const marcas = await getMarcasAction();
+    setData(marcas);
 
     closeModal();
     setEditing(null);
-  };
+
+    mostrarAlerta(
+      '¡Guardado!',
+      exists ? 'La marca se actualizó correctamente.' : 'La marca se creó correctamente.',
+      'success'
+    );
+  } catch (error) {
+    console.error('Error al guardar marca:', error);
+    mostrarAlerta('Error', 'No se pudo guardar la marca. Intenta de nuevo.', 'danger');
+  } finally {
+    setLoading(false);
+  }
+}
 
   // Columnas (con Switch en 'Disponible')
   const columns: Column<Marca>[] = [
@@ -148,6 +207,7 @@ export default function MarcasPage() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
+      <Alert title={alerta.titulo} msg={alerta.mensaje} type={alerta.tipo} />
       <Title
         showBackButton
         backHref="/mantenimiento"
@@ -180,12 +240,14 @@ export default function MarcasPage() {
       </div>
 
       {/* Tabla */}
-      <Table
-        data={filtered}
-        columns={columns}
-        getRowId={(row) => row.id_marca}
-        actions={(row: Marca) => (
-          <>
+      {loading ? (
+        <TableSkeleton rows={10} showActions />
+      ) : (
+        <Table
+          data={filtered}
+          columns={columns}
+          getRowId={(row) => row.id_marca}
+          actions={(row: Marca) => (
             <Button
               onClick={() => handleEdit(row)}
               icon={<Pencil className="w-4 h-4" />}
@@ -193,11 +255,11 @@ export default function MarcasPage() {
               variant="white"
               aria-label="Editar"
             />
-          </>
-        )}
-        actionsHeader="Acciones"
-        ariaLabel="Tabla de marcas"
-      />
+          )}
+          actionsHeader="Acciones"
+          ariaLabel="Tabla de marcas"
+        />
+      )}
 
       {/* Modal de creación/edición */}
       <Modal
@@ -222,6 +284,7 @@ export default function MarcasPage() {
           <FooterModal />
         }
       />
+          <ConfirmDialog />
     </div>
   );
 }

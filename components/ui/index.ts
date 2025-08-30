@@ -13,3 +13,6 @@ export * from './tabs-list';
 export * from './tabs-trigger';
 export * from './tabs-content';
 export * from './button';
+export * from './sketeleton';
+export * from './table-skeleton';
+export * from './alert';

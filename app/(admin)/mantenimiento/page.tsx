@@ -7,6 +7,7 @@ import {
   Tags,
   Percent,
   CreditCard,
+  Image,
 } from "lucide-react";
 
 type Item = {
@@ -56,6 +57,14 @@ const mantenimientoItems: Item[] = [
     subtitle: "Gestión de medios de cobro",
     href: "/mantenimiento/metodo-pago",
     Icon: CreditCard,
+    accent: "from-blue-500/15 to-blue-500/5",
+    ring: "focus-visible:ring-blue-500/40",
+  },
+  {
+    title: "Portadas",
+    subtitle: "Gestión de imagenes del carousel",
+    href: "/mantenimiento/portadas",
+    Icon: Image,
     accent: "from-blue-500/15 to-blue-500/5",
     ring: "focus-visible:ring-blue-500/40",
   },

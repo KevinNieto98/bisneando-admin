@@ -18,4 +18,8 @@ export * from './table-skeleton';
 export * from './alert';
 export * from './pagination';
 export * from './modal-skeleton';
+export * from './confirm-dialog';
+export * from './input';
+export * from './text-area';
+export * from './image-dropzone';
 

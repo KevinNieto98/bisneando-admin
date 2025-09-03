@@ -1,5 +1,4 @@
-"use client";
-
+'use server';
 import { supabase } from "@/utils/supabase/client"; // ⬅️ IMPORTA SOLO EL CLIENTE
 
 export async function postPortadaAction(
@@ -61,6 +60,40 @@ export async function updatePortadaAction(
   return data as {
     id_portada: number;
     imagen?: string;
+    link: string;
+    is_active: boolean;
+    fecha_creacion: string;
+    usuario_crea: string;
+    fecha_modificacion: string | null;
+    usuario_modificacion: string | null;
+  };
+}
+
+
+
+export async function getPortadaAction(id_portada: number) {
+  const { data, error } = await supabase
+    .from('tbl_portadas')
+    .select(
+      `
+      id_portada,
+      imagen,
+      link,
+      is_active,
+      fecha_creacion,
+      usuario_crea,
+      fecha_modificacion,
+      usuario_modificacion
+      `
+    )
+    .eq('id_portada', id_portada)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  return data as {
+    id_portada: number;
+    imagen: string;
     link: string;
     is_active: boolean;
     fecha_creacion: string;

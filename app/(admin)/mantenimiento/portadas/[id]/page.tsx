@@ -1,16 +1,10 @@
+// app/mantenimiento/portadas/[id]/page.tsx
 "use client";
 
 import React from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
-  Title,
-  Switch,
-  Button,
-  ConfirmDialog,
-  Input,
-  TextArea,
-  ImageDropzone,
-  Alert,
+  Title, Switch, Button, ConfirmDialog, Input, TextArea, ImageDropzone, Alert,
 } from "@/components";
 import { useUIStore } from "@/store";
 import { Save, ImageIcon, AlertCircle } from "lucide-react";
@@ -18,9 +12,9 @@ import { postPortadaAction, updatePortadaAction } from "../actions";
 
 type Portada = {
   file: File | null;
-  direccion: string;     // -> link en DB
-  disponible: boolean;   // -> is_active en DB
-  portadaUrl?: string;
+  direccion: string;     // link en DB
+  disponible: boolean;   // is_active en DB
+  portadaUrl?: string;   // data URL generada por el API
   descripcion?: string;  // solo UI
 };
 
@@ -41,28 +35,48 @@ export default function EditarPortadaPage() {
     descripcion: "",
   });
   const [saving, setSaving] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
 
-  // Carga inicial en edición (mock; reemplázalo con fetch real si gustas)
+  // Carga inicial real desde la DB
   React.useEffect(() => {
+    let cancelled = false;
     async function load() {
       if (isNew) return;
-      const data = {
-        direccion: "/productos/demo",
-        disponible: true,
-        portadaUrl: `/portadas/${id}.png`,
-        descripcion: "Portada de ejemplo (solo UI)",
-      };
-      setState((s) => ({ ...s, ...data }));
+      try {
+        setLoading(true);
+        const res = await fetch(`/api/portadas/${id}`, { cache: "no-store" });
+        const data = await res.json();
+        console.log("Portada cargada:", data);
+        
+        if (!res.ok) throw new Error(data?.error || "No se pudo obtener la portada");
+
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            direccion: data.direccion ?? "",
+            disponible: Boolean(data.disponible),
+            portadaUrl: data.portadaUrl ?? undefined, // <- data:image/... listo para <img />
+            // descripción sigue siendo solo UI
+          }));
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          mostrarAlerta("Error", err?.message || "No se pudo cargar la portada", "danger");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
     load();
-  }, [id, isNew]);
+    return () => { cancelled = true; };
+  }, [id, isNew, mostrarAlerta]);
 
   // Validaciones
   const direccionValida = state.direccion.trim().length >= 2;
   const imagenValida = isNew ? Boolean(state.file) : true;
   const puedeGuardar = direccionValida && imagenValida && !saving;
 
-  // Guardar usando acciones de Supabase (parámetros POSICIONALES)
+  // Guardar usando acciones
   const onSubmit = async () => {
     if (!puedeGuardar) return;
     try {
@@ -70,23 +84,22 @@ export default function EditarPortadaPage() {
 
       if (isNew) {
         await postPortadaAction(
-          state.file!,          // File (requerido en /new)
-          state.direccion,      // link
-          state.disponible,     // is_active
-          "ADMIN"               // usuario_crea (opcional)
+          state.file!,        // File requerido en /new
+          state.direccion,    // link
+          state.disponible,   // is_active
+          "ADMIN"             // usuario_crea (opcional)
         );
         mostrarAlerta("Éxito", "La portada fue creada correctamente", "success");
       } else {
         await updatePortadaAction(
-          Number(id),           // id_portada
-          state.file,           // File | null | undefined (opcional en edición)
-          state.direccion,      // link
-          state.disponible,     // is_active
-          "ADMIN"               // usuario_modificacion (opcional)
+          Number(id),
+          state.file,         // File | null (opcional en edición)
+          state.direccion,
+          state.disponible,
+          "ADMIN"             // usuario_modificacion (opcional)
         );
         mostrarAlerta("Éxito", "La portada fue actualizada correctamente", "success");
       }
-
       router.push("/mantenimiento/portadas");
     } catch (err: any) {
       mostrarAlerta("Error", err?.message || "Ocurrió un error al guardar", "danger");
@@ -95,14 +108,11 @@ export default function EditarPortadaPage() {
     }
   };
 
-  // Confirmación antes de guardar
   const handleConfirmSave = () => {
     if (!puedeGuardar) return;
     openConfirm({
       titulo: "Confirmar guardado",
-      mensaje: isNew
-        ? "¿Deseas crear esta nueva portada?"
-        : `¿Deseas guardar los cambios de la portada #${id}?`,
+      mensaje: isNew ? "¿Deseas crear esta nueva portada?" : `¿Deseas guardar los cambios de la portada #${id}?`,
       confirmText: saving ? "Guardando..." : "Guardar",
       rejectText: "Cancelar",
       preventClose: true,
@@ -112,9 +122,7 @@ export default function EditarPortadaPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-4">
-      {/* Modal de confirmación */}
       <ConfirmDialog />
-      {/* Alerta global */}
       <Alert />
 
       <Title
@@ -126,7 +134,6 @@ export default function EditarPortadaPage() {
       />
 
       <div className="space-y-6 mt-2">
-        {/* Advertencia cuando no hay imagen en /new */}
         {isNew && !state.file && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <AlertCircle className="w-4 h-4 mt-0.5" />
@@ -137,28 +144,27 @@ export default function EditarPortadaPage() {
           </div>
         )}
 
-        {/* Dropzone */}
         <ImageDropzone
           file={state.file}
           onFileSelected={(file) => setState((s) => ({ ...s, file }))}
           accept="image/*"
           ratio={16 / 9}
-          disabled={saving}
+          disabled={saving || loading}
         />
 
         {/* Portada actual (solo edición y si no hay nueva imagen) */}
-        {!isNew && !state.file && state.portadaUrl && (
-          <div className="mt-3">
-            <p className="text-xs font-medium text-neutral-600 mb-1">Portada actual:</p>
-            <img
-              src={state.portadaUrl}
-              alt="Portada actual"
-              className="w-full rounded-lg border object-cover max-h-72"
-            />
-          </div>
-        )}
+{!isNew && !state.file && (
+  <div className="mt-3">
+    <p className="text-xs font-medium text-neutral-600 mb-1">Portada actual:</p>
+    <img
+      src={`/api/portadas/${id}/imagen`}   // <- SERVIDA DESDE EL API
+      alt="Portada actual"
+      className="w-full rounded-lg border object-cover max-h-72"
+      onError={() => console.warn("No se pudo cargar la imagen")}
+    />
+  </div>
+)}
 
-        {/* Dirección */}
         <Input
           label="Dirección"
           isRequired
@@ -166,36 +172,31 @@ export default function EditarPortadaPage() {
           onChange={(e) => setState((s) => ({ ...s, direccion: e.target.value }))}
           placeholder="/productos/iphone-13-pro"
           autoFocus
-          disabled={saving}
+          disabled={saving || loading}
         />
-        {!direccionValida && (
-          <p className="text-xs text-red-600">Debe tener al menos 2 caracteres.</p>
-        )}
+        {!direccionValida && <p className="text-xs text-red-600">Debe tener al menos 2 caracteres.</p>}
 
-        {/* Descripción (solo UI) */}
         <TextArea
           label="Descripción (opcional)"
           value={state.descripcion}
           onChange={(e) => setState((s) => ({ ...s, descripcion: e.target.value }))}
           placeholder="Breve descripción para identificar la portada..."
           rows={4}
-          disabled={saving}
+          disabled={saving || loading}
         />
 
-        {/* Disponible */}
         <div className="flex items-center gap-3">
           <Switch
             checked={state.disponible}
             onChange={(next) => setState((s) => ({ ...s, disponible: next }))}
             ariaLabel="Cambiar disponibilidad"
-            disabled={saving}
+            disabled={saving || loading}
           />
           <span className="text-sm font-medium text-neutral-700">
             {state.disponible ? "Disponible" : "No disponible"}
           </span>
         </div>
 
-        {/* Botones */}
         <div className="flex items-center justify-end gap-2 pt-2">
           <Button
             variant="white"
@@ -205,14 +206,14 @@ export default function EditarPortadaPage() {
             Cancelar
           </Button>
 
-          <Button
-            onClick={handleConfirmSave}
-            disabled={!puedeGuardar}
-            icon={<Save className="w-4 h-4" />}
-            title={!imagenValida ? "Agrega una imagen para continuar" : undefined}
-          >
-            {saving ? "Guardando..." : "Guardar"}
-          </Button>
+            <Button
+              onClick={handleConfirmSave}
+              disabled={!puedeGuardar}
+              icon={<Save className="w-4 h-4" />}
+              title={!imagenValida ? "Agrega una imagen para continuar" : undefined}
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
         </div>
       </div>
     </div>

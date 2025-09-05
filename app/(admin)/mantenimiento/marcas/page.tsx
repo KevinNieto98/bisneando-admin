@@ -190,8 +190,8 @@ export default function MarcasPage() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
-      <Alert title={alerta.titulo} msg={alerta.mensaje} type={alerta.tipo} />
-      {error && <Alert title="Error" msg={error} type="danger" />}
+      <Alert  />
+      {error && <Alert  />}
 
       <Title
         showBackButton

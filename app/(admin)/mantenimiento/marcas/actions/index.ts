@@ -1,7 +1,8 @@
 // app/marcas/actions.ts
 'use server'
 
-import { supabase } from "@/utils"
+import { supabase } from "@/utils/supabase/client"
+
 
 export async function getMarcasAction() {
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/tbl_marcas?select=*&order=id_marca.asc`

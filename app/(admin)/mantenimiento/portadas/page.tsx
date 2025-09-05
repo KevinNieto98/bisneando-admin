@@ -1,15 +1,13 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import Image from "next/image";
+import React, { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ImageIcon, Pencil, Plus, Search } from "lucide-react";
-import { Switch, Table, Title } from "@/components";
+import { Switch, Table, Title, Alert, TableSkeleton, Button } from "@/components";
+import { useUIStore } from "@/store";
+import { getAllPortadasAction } from "./actions"; // ⬅️ ajusta la ruta si difiere
 
-// Si tu módulo "@/components" exporta el tipo Column, usa esta línea:
-// import { Table, Title, type Column } from "@/components";
-
-// Si NO exportas Column desde "@/components", deja este tipo local:
+// Si NO exportas Column desde "@/components", usa este tipo local:
 type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
@@ -17,23 +15,20 @@ type Column<T> = {
   className?: string;
 };
 
-// Tipos
-interface MetodoPago {
-  id_metodo_pago: number;
-  direccion: string;
-  disponible: boolean;
-  portadaFile: string; // archivo en /public/portadas
+// Tipos que vienen del server action (simplificados para la UI)
+interface PortadaItem {
+  id_portada: number;
+  url_imagen: string | null;
+  link: string;
+  is_active: boolean;
+  fecha_creacion: string;
+  usuario_crea: string;
+  fecha_modificacion: string | null;
+  usuario_modificacion: string | null;
 }
 
-// Datos de ejemplo (reemplazar con fetch/DB)
-const initialData: MetodoPago[] = [
-  { id_metodo_pago: 1, direccion: "/productos", disponible: true,  portadaFile: "1.png" },
-  { id_metodo_pago: 2, direccion: "/productos/iphone-13-pro", disponible: true, portadaFile: "2.png" },
-  { id_metodo_pago: 3, direccion: "/productos/samsung-galaxy-s22", disponible: false, portadaFile: "3.png" },
-];
-
 // Mini preview rectangular con fallback
-function CoverThumb({ file }: { file: string }) {
+function CoverThumb({ url }: { url: string | null }) {
   const [error, setError] = React.useState(false);
 
   return (
@@ -41,13 +36,12 @@ function CoverThumb({ file }: { file: string }) {
       {/* Rectángulo 16:9 */}
       <div className="pt-[56.25%]" />
       <div className="absolute inset-0">
-        {!error ? (
-          <Image
-            src={`/portadas/${file}`}
-            alt={`Portada ${file}`}
-            fill
-            sizes="144px"
-            className="object-cover"
+        {url && !error ? (
+          // Usamos <img> para evitar configurar domains en next/image
+          <img
+            src={url}
+            alt="Portada"
+            className="h-full w-full object-cover"
             onError={() => setError(true)}
           />
         ) : (
@@ -60,38 +54,78 @@ function CoverThumb({ file }: { file: string }) {
   );
 }
 
-export default function MetodosPagoPage() {
+export default function PortadasPage() {
   const router = useRouter();
-  const [data, setData] = useState<MetodoPago[]>(initialData);
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
+
+  const [rows, setRows] = useState<PortadaItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [query, setQuery] = useState("");
 
+  // Cargar desde Supabase (server action)
+  const load = async () => {
+    try {
+      setLoading(true);
+      const res = await getAllPortadasAction({
+        offset: 0,
+        limit: 200,      // ajusta si esperas muchas
+        onlyActive: false,
+        orderBy: "fecha_creacion",
+        ascending: false,
+      });
+
+      if (!res.ok) {
+        mostrarAlerta("Error", res.message || "No se pudieron obtener las portadas", "danger");
+        setRows([]);
+        return;
+      }
+
+      setRows(res.data ?? []);
+    } catch (err: any) {
+      mostrarAlerta("Error", err?.message || "Error inesperado obteniendo portadas", "danger");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Filtro local por id/link/url
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return data;
-    return data.filter((m) =>
-      [m.id_metodo_pago.toString(), m.direccion.toLowerCase(), m.portadaFile.toLowerCase()].some((s) =>
-        s.includes(q)
-      )
+    if (!q) return rows;
+    return rows.filter((m) =>
+      [
+        m.id_portada.toString(),
+        m.link?.toLowerCase() ?? "",
+        m.url_imagen?.toLowerCase() ?? "",
+      ].some((s) => s.includes(q))
     );
-  }, [data, query]);
+  }, [rows, query]);
 
+  // Toggle local (no persiste)
   const handleToggleDisponible = (id: number, next?: boolean) => {
-    setData((prev) =>
+    setRows((prev) =>
       prev.map((m) =>
-        m.id_metodo_pago === id
-          ? { ...m, disponible: typeof next === "boolean" ? next : !m.disponible }
+        m.id_portada === id
+          ? { ...m, is_active: typeof next === "boolean" ? next : !m.is_active }
           : m
       )
     );
+    // Si quieres persistir aquí, llama updatePortadaAction(id, null, m.link, next!)
   };
 
-  // ⬇️ ORDEN: ID → Portada → Dirección → Disponible
-  const columns: Column<MetodoPago>[] = [
+  // Columnas: ID → Portada → Dirección → Disponible
+  const columns: Column<PortadaItem>[] = [
     {
       header: "ID",
       className: "w-16 text-center",
       align: "center",
-      cell: (row) => row.id_metodo_pago,
+      cell: (row) => row.id_portada,
     },
     {
       header: "Portada",
@@ -99,7 +133,7 @@ export default function MetodosPagoPage() {
       align: "center",
       cell: (row) => (
         <div className="flex items-center justify-center">
-          <CoverThumb file={row.portadaFile} />
+          <CoverThumb url={row.url_imagen} />
         </div>
       ),
     },
@@ -111,9 +145,9 @@ export default function MetodosPagoPage() {
         <div className="max-w-[560px]">
           <code
             className="rounded bg-neutral-100 px-2 py-1 text-[12px] text-neutral-800 block truncate"
-            title={row.direccion}
+            title={row.link}
           >
-            {row.direccion}
+            {row.link}
           </code>
         </div>
       ),
@@ -125,12 +159,12 @@ export default function MetodosPagoPage() {
       cell: (row) => (
         <div className="flex items-center justify-center gap-2">
           <Switch
-            checked={row.disponible}
-            onChange={(next) => handleToggleDisponible(row.id_metodo_pago, next)}
-            ariaLabel={`Cambiar disponibilidad de ${row.direccion}`}
+            checked={row.is_active}
+            onChange={(next) => handleToggleDisponible(row.id_portada, next)}
+            ariaLabel={`Cambiar disponibilidad de ${row.link}`}
           />
           <span className="text-xs font-medium text-neutral-700">
-            {row.disponible ? "Sí" : "No"}
+            {row.is_active ? "Sí" : "No"}
           </span>
         </div>
       ),
@@ -139,6 +173,8 @@ export default function MetodosPagoPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
+      <Alert />
+
       {/* Header */}
       <Title
         showBackButton
@@ -155,50 +191,46 @@ export default function MetodosPagoPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar..."
+            placeholder="Buscar por id, link o url..."
             className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
           />
         </div>
         <div className="flex gap-2">
-          {/* Crear -> /portadas/new */}
-          <button
+          <Button
+            variant="success" // usa tu variante negra por defecto
+            icon={<Plus className="w-4 h-4" />}
             onClick={() => router.push("/mantenimiento/portadas/new")}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
           >
-            <Plus className="w-4 h-4" />
             Nueva portada
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Tabla */}
-      <Table
-        data={filtered}
-        columns={columns}
-        getRowId={(row) => row.id_metodo_pago}
-        actions={(row: MetodoPago) => (
-          <>
-            {/* Editar -> /portadas/[id] */}
-            <button
-              onClick={() => router.push(`/mantenimiento/portadas/${row.id_metodo_pago}`)}
-              className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
-              aria-label="Editar portada"
-              title="Editar portada"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-          </>
-        )}
-        actionsHeader="Acciones"
-        ariaLabel="Tabla de portadas"
-      />
+      {/* Tabla / Estado de carga */}
+      {loading ? (
+        <TableSkeleton rows={4} showActions />
+      ) : (
+        <Table
+          data={filtered}
+          columns={columns}
+          getRowId={(row) => row.id_portada}
+          actions={(row: PortadaItem) => (
+            <>
+              {/* Editar -> /mantenimiento/portadas/[id] */}
+              <button
+                onClick={() => router.push(`/mantenimiento/portadas/${row.id_portada}`)}
+                className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
+                aria-label="Editar portada"
+                title="Editar portada"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          actionsHeader="Acciones"
+          ariaLabel="Tabla de portadas"
+        />
+      )}
     </div>
-  );
-}
-
-// Utilidad (si la necesitas)
-function nextId(arr: MetodoPago[]) {
-  return (
-    (arr.reduce((max, m) => (m.id_metodo_pago > max ? m.id_metodo_pago : max), 0) || 0) + 1
   );
 }

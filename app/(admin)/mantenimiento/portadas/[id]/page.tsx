@@ -4,18 +4,23 @@
 import React from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
-  Title, Switch, Button, ConfirmDialog, Input, TextArea, ImageDropzone, Alert,
+  Title, Switch, Button, ConfirmDialog, Input, TextArea, ImageDropzone, Alert, TableSkeleton,
 } from "@/components";
 import { useUIStore } from "@/store";
 import { Save, ImageIcon, AlertCircle } from "lucide-react";
-import { postPortadaAction, updatePortadaAction } from "../actions";
+import {
+  postPortadaAction,
+  updatePortadaAction, // devuelve { ok: boolean, ... }
+  getPortadaAction,
+} from "../actions";
 
+// Estado local (UI) -> mapea a columnas reales de DB
 type Portada = {
-  file: File | null;
-  direccion: string;     // link en DB
-  disponible: boolean;   // is_active en DB
-  portadaUrl?: string;   // data URL generada por el API
-  descripcion?: string;  // solo UI
+  file: File | null;       // archivo seleccionado (solo UI)
+  direccion: string;       // link (DB: link)
+  disponible: boolean;     // is_active (DB: is_active)
+  portadaUrl?: string;     // URL público de la imagen (DB: url_imagen)
+  descripcion?: string;    // solo UI, no se guarda actualmente
 };
 
 export default function EditarPortadaPage() {
@@ -37,26 +42,20 @@ export default function EditarPortadaPage() {
   const [saving, setSaving] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
 
-  // Carga inicial real desde la DB
+  // Carga inicial desde Supabase (server action)
   React.useEffect(() => {
     let cancelled = false;
     async function load() {
       if (isNew) return;
       try {
         setLoading(true);
-        const res = await fetch(`/api/portadas/${id}`, { cache: "no-store" });
-        const data = await res.json();
-        console.log("Portada cargada:", data);
-        
-        if (!res.ok) throw new Error(data?.error || "No se pudo obtener la portada");
-
+        const data = await getPortadaAction(Number(id));
         if (!cancelled) {
           setState((s) => ({
             ...s,
-            direccion: data.direccion ?? "",
-            disponible: Boolean(data.disponible),
-            portadaUrl: data.portadaUrl ?? undefined, // <- data:image/... listo para <img />
-            // descripción sigue siendo solo UI
+            direccion: data.link ?? "",
+            disponible: Boolean(data.is_active),
+            portadaUrl: data.url_imagen ?? undefined,
           }));
         }
       } catch (err: any) {
@@ -76,30 +75,84 @@ export default function EditarPortadaPage() {
   const imagenValida = isNew ? Boolean(state.file) : true;
   const puedeGuardar = direccionValida && imagenValida && !saving;
 
-  // Guardar usando acciones
+  // Guardar usando server actions (Supabase) con manejo de errores por código en UPDATE
   const onSubmit = async () => {
     if (!puedeGuardar) return;
-    try {
-      setSaving(true);
+    setSaving(true);
 
-      if (isNew) {
+    if (isNew) {
+      try {
         await postPortadaAction(
-          state.file!,        // File requerido en /new
+          state.file!,        // requerido al crear
           state.direccion,    // link
           state.disponible,   // is_active
-          "ADMIN"             // usuario_crea (opcional)
+          "ADMIN"
         );
         mostrarAlerta("Éxito", "La portada fue creada correctamente", "success");
-      } else {
-        await updatePortadaAction(
-          Number(id),
-          state.file,         // File | null (opcional en edición)
-          state.direccion,
-          state.disponible,
-          "ADMIN"             // usuario_modificacion (opcional)
-        );
-        mostrarAlerta("Éxito", "La portada fue actualizada correctamente", "success");
+        router.push("/mantenimiento/portadas");
+      } catch (err: any) {
+        mostrarAlerta("Error", err?.message || "Ocurrió un error al guardar", "danger");
+      } finally {
+        setSaving(false);
       }
+      return;
+    }
+
+    try {
+      const res = await updatePortadaAction(
+        Number(id),
+        state.file,          // opcional en edición
+        state.direccion,     // link
+        state.disponible,    // is_active
+        "ADMIN"
+      );
+
+      if (!res || (typeof res === "object" && "ok" in res && !res.ok)) {
+        const code = (res && (res as any).code) as
+          | "FETCH_CURRENT_FAILED"
+          | "NOT_FOUND"
+          | "STORAGE_UPLOAD_FAILED"
+          | "DB_UPDATE_FAILED"
+          | "ROLLBACK_NEW_IMAGE_FAILED"
+          | "DELETE_OLD_IMAGE_FAILED"
+          | "MOVE_OLD_FAILED"
+          | "RESTORE_OLD_FAILED"
+          | "UNKNOWN"
+          | undefined;
+
+        switch (code) {
+          case "NOT_FOUND":
+            mostrarAlerta("No encontrado", "La portada ya no existe.", "warning");
+            break;
+          case "STORAGE_UPLOAD_FAILED":
+            mostrarAlerta("Error", "No se pudo subir la nueva imagen.", "danger");
+            break;
+          case "DB_UPDATE_FAILED":
+            mostrarAlerta("Error", "No se pudo actualizar la portada.", "danger");
+            break;
+          case "ROLLBACK_NEW_IMAGE_FAILED":
+            mostrarAlerta("Atención", "Falló el guardado y no se pudo limpiar la imagen nueva.", "warning");
+            break;
+          case "DELETE_OLD_IMAGE_FAILED":
+            mostrarAlerta("Atención", "Se actualizó, pero no se pudo borrar la imagen anterior.", "warning");
+            break;
+          case "MOVE_OLD_FAILED":
+            mostrarAlerta("Error", "No se pudo preparar la eliminación de la imagen anterior.", "danger");
+            break;
+          case "RESTORE_OLD_FAILED":
+            mostrarAlerta("Error", "Fallo al restaurar imagen anterior ante error.", "danger");
+            break;
+          case "FETCH_CURRENT_FAILED":
+            mostrarAlerta("Error", "No se pudo obtener la portada actual.", "danger");
+            break;
+          default:
+            mostrarAlerta("Error", (res as any)?.message || "Error desconocido.", "danger");
+        }
+        setSaving(false);
+        return;
+      }
+
+      mostrarAlerta("Éxito", "La portada fue actualizada correctamente", "success");
       router.push("/mantenimiento/portadas");
     } catch (err: any) {
       mostrarAlerta("Error", err?.message || "Ocurrió un error al guardar", "danger");
@@ -120,6 +173,27 @@ export default function EditarPortadaPage() {
     });
   };
 
+  // ⬇️ Mientras carga una portada existente, mostramos TableSkeleton
+  if (!isNew && loading) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-4">
+        <ConfirmDialog />
+        <Alert />
+        <Title
+          showBackButton
+          backHref="/mantenimiento/portadas"
+          title="Editar portada"
+          icon={<ImageIcon className="w-5 h-5" />}
+          subtitle={`Cargando portada #${id}...`}
+        />
+        <div className="mt-4 rounded-xl">
+          <TableSkeleton rows={10} showActions />
+        </div>
+      </div>
+    );
+  }
+
+  // ⬇️ Contenido normal (crear o editar ya cargado)
   return (
     <div className="max-w-3xl mx-auto px-6 py-4">
       <ConfirmDialog />
@@ -152,18 +226,18 @@ export default function EditarPortadaPage() {
           disabled={saving || loading}
         />
 
-        {/* Portada actual (solo edición y si no hay nueva imagen) */}
-{!isNew && !state.file && (
-  <div className="mt-3">
-    <p className="text-xs font-medium text-neutral-600 mb-1">Portada actual:</p>
-    <img
-      src={`/api/portadas/${id}/imagen`}   // <- SERVIDA DESDE EL API
-      alt="Portada actual"
-      className="w-full rounded-lg border object-cover max-h-72"
-      onError={() => console.warn("No se pudo cargar la imagen")}
-    />
-  </div>
-)}
+        {/* Portada actual (solo edición y si no hay nueva imagen seleccionada) */}
+        {!isNew && !state.file && state.portadaUrl && (
+          <div className="mt-3">
+            <p className="text-xs font-medium text-neutral-600 mb-1">Portada actual:</p>
+            <img
+              src={state.portadaUrl}
+              alt="Portada actual"
+              className="w-full rounded-lg border border-b-gray-500 object-cover max-h-72"
+              onError={() => console.warn("No se pudo cargar la imagen")}
+            />
+          </div>
+        )}
 
         <Input
           label="Dirección"

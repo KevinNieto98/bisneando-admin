@@ -1,183 +1,205 @@
-"use client";
+'use client';
 
-import React, { useMemo, useState } from "react";
-import { Pencil, Plus, CreditCard, Search } from "lucide-react";
-import { Modal, Switch, Table, Title } from "@/components";
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pencil, Plus, CreditCard, Search } from 'lucide-react';
+import {
+  Alert,
+  Button,
+  Modal,
+  Switch,
+  Table,
+  TableSkeleton,
+  Title,
+  Pagination,
+  ModalSkeleton,
+} from '@/components';
+import { FooterModal, MetodoForm } from './components';
+import { useUIStore } from '@/store';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
-// Si tu módulo "@/components" exporta el tipo Column, usa esta línea:
-// import { Table, Title, type Column } from "@/components";
-
-// Si NO exportas Column desde "@/components", deja este tipo local:
-type Column<T> = {
-  header: string;
-  cell: (row: T) => React.ReactNode;
-  align?: "left" | "center" | "right";
-  className?: string;
-};
-
-// Tipos
-interface MetodoPago {
-  id_metodo_pago: number;
-  nombre_metodo: string;
-  disponible: boolean;
-}
-
-// Datos de ejemplo (reemplazar con fetch/DB)
-const initialData: MetodoPago[] = [
-  { id_metodo_pago: 1, nombre_metodo: "Tarjeta de crédito", disponible: true },
-  { id_metodo_pago: 2, nombre_metodo: "Transferencia bancaria", disponible: true },
-  { id_metodo_pago: 3, nombre_metodo: "Efectivo", disponible: false },
-];
-
-/** Formulario para crear/editar (sin botones; el submit lo maneja el footer del modal) */
-function MetodoPagoForm({
-  value,
-  onChange,
-  onSubmit,
-  formId = "metodo-form",
-}: {
-  value: MetodoPago;
-  onChange: (next: MetodoPago) => void;
-  onSubmit: () => void;
-  formId?: string;
-}) {
-  const [touched, setTouched] = useState(false);
-  const nombreValido = value.nombre_metodo.trim().length >= 2;
-
-  return (
-    <form
-      id={formId}
-      onSubmit={(e) => {
-        e.preventDefault();
-        setTouched(true);
-        if (!nombreValido) return;
-        onSubmit();
-      }}
-      className="space-y-4"
-    >
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-neutral-700">
-          Nombre del método de pago
-        </label>
-        <input
-          autoFocus
-          value={value.nombre_metodo}
-          onChange={(e) =>
-            onChange({ ...value, nombre_metodo: e.target.value })
-          }
-          placeholder="Ej. Tarjeta de crédito"
-          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400"
-        />
-        {touched && !nombreValido && (
-          <p className="text-xs text-red-600">Debe tener al menos 2 caracteres.</p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={value.disponible}
-          onChange={(next) => onChange({ ...value, disponible: next })}
-          ariaLabel="Cambiar disponibilidad"
-        />
-        <span className="text-sm font-medium text-neutral-700">
-          {value.disponible ? "Disponible" : "No disponible"}
-        </span>
-      </div>
-    </form>
-  );
-}
+import {
+  Column,
+  Metodo,
+  isMetodo,
+  nextId,
+  useFilteredData,
+  useClientPagination,
+  useMetodosData,
+} from './utils';
 
 export default function MetodosPagoPage() {
-  const [data, setData] = useState<MetodoPago[]>(initialData);
-  const [query, setQuery] = useState("");
+  // UI store
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
+  const openConfirm = useUIStore((s) => s.openConfirm);
 
-  // Estado del modal y edición
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<MetodoPago | null>(null);
-  const formId = "metodo-form";
+  const isModalOpen = useUIStore((s) => s.isModalOpen);
+  const openModal = useUIStore((s) => s.openModal);
+  const closeModal = useUIStore((s) => s.closeModal);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return data;
-    return data.filter((m) =>
-      [m.id_metodo_pago.toString(), m.nombre_metodo.toLowerCase()].some((s) =>
-        s.includes(q)
-      )
-    );
-  }, [data, query]);
+  const editing = useUIStore((s) => s.editing) as Metodo | null;
+  const setEditing = useUIStore((s) => s.setEditing) as (v: Metodo | null) => void;
 
-  // Handlers CRUD (simulados). Reemplaza con llamadas a tu API.
+  // Estado para mostrar skeleton mientras se prepara el form
+  const [modalLoading, setModalLoading] = useState(false);
+  // Estado para bloquear el formulario y acciones mientras se envía
+  const [submitting, setSubmitting] = useState(false);
+
+  // Data
+  const { data, loading, error, toggleDisponible, createMetodo, updateMetodo } =
+    useMetodosData();
+
+  // Búsqueda
+  const [query, setQuery] = useState('');
+  const filtered = useFilteredData(data, query);
+
+  // Paginación
+  const PAGE_SIZE = 10;
+  const { currentPage, setCurrentPage, totalPages, pageItems: paginatedData } =
+    useClientPagination(filtered, PAGE_SIZE);
+
+  // 🔁 Cada vez que se abre el modal, mostramos skeleton de entrada
+  useEffect(() => {
+    if (isModalOpen) {
+      setModalLoading(true);
+    } else {
+      setModalLoading(false);
+    }
+  }, [isModalOpen]);
+
+  // Handlers
   const handleCreate = () => {
-    setEditing({ id_metodo_pago: nextId(data), nombre_metodo: "", disponible: true });
-    setOpen(true);
-  };
-
-  const handleEdit = (m: MetodoPago) => {
-    setEditing({ ...m });
-    setOpen(true);
-  };
-
-  const handleToggleDisponible = (id: number, next?: boolean) => {
-    setData((prev) =>
-      prev.map((m) =>
-        m.id_metodo_pago === id
-          ? { ...m, disponible: typeof next === "boolean" ? next : !m.disponible }
-          : m
-      )
-    );
-  };
-
-  const handleSave = () => {
-    if (!editing) return;
-    setData((prev) => {
-      const exists = prev.some((m) => m.id_metodo_pago === editing.id_metodo_pago);
-      if (exists) {
-        return prev.map((m) => (m.id_metodo_pago === editing.id_metodo_pago ? editing : m));
-      }
-      return [...prev, editing];
-    });
-    setOpen(false);
+    // 1) Abrir el modal vacío (editing=null) para que se vea el skeleton YA
+    openModal();
+    setModalLoading(true);
     setEditing(null);
+
+    // 2) En el siguiente tick, setear el editing real para montar el form
+    setTimeout(() => {
+      setEditing({
+        id_metodo: nextId(data),
+        nombre_metodo: '',
+        is_active: true,
+      });
+      // el onReady del form apagará modalLoading
+    }, 0);
   };
 
-  // Columnas (con Switch en 'Disponible')
-  const columns: Column<MetodoPago>[] = [
-    {
-      header: "ID",
-      className: "w-16 text-center",
-      align: "center",
-      cell: (row) => row.id_metodo_pago,
-    },
-    {
-      header: "Método",
-      className: "min-w-[220px] w-full text-left",
-      align: "left",
-      cell: (row) => (
-        <span className="font-medium text-neutral-900">{row.nombre_metodo}</span>
-      ),
-    },
-    {
-      header: "Disponible",
-      className: "w-40 text-center",
-      align: "center",
-      cell: (row) => (
-        <div className="flex items-center justify-center gap-2">
-          <Switch
-            checked={row.disponible}
-            onChange={(next) => handleToggleDisponible(row.id_metodo_pago, next)}
-            ariaLabel={`Cambiar disponibilidad de ${row.nombre_metodo}`}
-          />
-          <span className="text-xs font-medium text-neutral-700">
-            {row.disponible ? "Sí" : "No"}
-          </span>
-        </div>
-      ),
-    },
-  ];
+  const handleEdit = (m: Metodo) => {
+    openModal();
+    setModalLoading(true);
+    setEditing(null);
+    setTimeout(() => {
+      setEditing({ ...m });
+      // el onReady del form apagará modalLoading
+    }, 0);
+  };
+
+  const handleToggleDisponible = async (id: number, next?: boolean) => {
+    try {
+      await toggleDisponible(id, next);
+    } catch (e) {
+      console.error('Error al actualizar disponibilidad:', e);
+      mostrarAlerta('Error', 'No se pudo actualizar la disponibilidad.', 'danger');
+    }
+  };
+
+  const handleSave = async () => {
+    if (!editing || !isMetodo(editing)) return;
+
+    const exists = data.some((m) => m.id_metodo === editing.id_metodo);
+
+    openConfirm({
+      titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
+      mensaje: exists
+        ? `¿Deseas actualizar el método \"${editing.nombre_metodo}\"?`
+        : `¿Deseas crear el método \"${editing.nombre_metodo}\"?`,
+      confirmText: exists ? 'Actualizar' : 'Crear',
+      rejectText: 'Cancelar',
+      onConfirm: async () => {
+        // Bloquea la UI durante el guardado
+        setSubmitting(true);
+        try {
+          await doSave({ exists });
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
+  };
+
+  const doSave = async ({ exists }: { exists: boolean }) => {
+    try {
+      if (exists) {
+        await updateMetodo(editing!);
+      } else {
+        await createMetodo({
+          nombre_metodo: editing!.nombre_metodo,
+          is_active: editing!.is_active,
+        });
+      }
+
+      closeModal();
+      setEditing(null);
+
+      mostrarAlerta(
+        '¡Guardado!',
+        exists
+          ? 'El método de pago se actualizó correctamente.'
+          : 'El método de pago se creó correctamente.',
+        'success'
+      );
+
+      setCurrentPage(1);
+    } catch (e) {
+      console.error('Error al guardar método de pago:', e);
+      mostrarAlerta('Error', 'No se pudo guardar el método. Intenta de nuevo.', 'danger');
+    }
+  };
+
+  // Columnas
+  const columns: Column<Metodo>[] = useMemo(
+    () => [
+      {
+        header: 'ID',
+        className: 'w-16 text-center',
+        align: 'center',
+        cell: (row) => row.id_metodo,
+      },
+      {
+        header: 'Método',
+        className: 'min-w-[200px] w-full text-left',
+        align: 'left',
+        cell: (row) => (
+          <span className="font-medium text-neutral-900">{row.nombre_metodo}</span>
+        ),
+      },
+      {
+        header: 'Disponible',
+        className: 'w-40 text-center',
+        align: 'center',
+        cell: (row) => (
+          <div className="flex items-center justify-center gap-2">
+            <Switch
+              checked={row.is_active}
+              onChange={(next) => handleToggleDisponible(row.id_metodo, next)}
+              ariaLabel={`Cambiar disponibilidad de ${row.nombre_metodo}`}
+            />
+            <span className="text-xs font-medium text-neutral-700">
+              {row.is_active ? 'Sí' : 'No'}
+            </span>
+          </div>
+        ),
+      },
+    ],
+    [handleToggleDisponible]
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
+      <Alert />
+      {error && <Alert />}
+
       <Title
         showBackButton
         backHref="/mantenimiento"
@@ -191,88 +213,87 @@ export default function MetodosPagoPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Buscar método..."
             className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
           />
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handleCreate}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
-          >
-            <Plus className="w-4 h-4" />
+          <Button onClick={handleCreate} icon={<Plus className="w-4 h-4" />} variant="warning">
             Nuevo método
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Tabla */}
-      <Table
-        data={filtered}
-        columns={columns}
-        getRowId={(row) => row.id_metodo_pago}
-        actions={(row: MetodoPago) => (
-          <>
-            <button
-              onClick={() => handleEdit(row)}
-              className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
-              aria-label="Editar"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-          </>
-        )}
-        actionsHeader="Acciones"
-        ariaLabel="Tabla de métodos de pago"
-      />
+      {loading ? (
+        <TableSkeleton rows={10} showActions />
+      ) : (
+        <div className={submitting ? 'pointer-events-none opacity-60' : ''}>
+          <Table
+            data={paginatedData}
+            columns={columns}
+            getRowId={(row) => row.id_metodo}
+            actions={(row: Metodo) => (
+              <Button
+                onClick={() => handleEdit(row)}
+                icon={<Pencil className="w-4 h-4" />}
+                iconOnly
+                variant="white"
+                aria-label="Editar"
+                disabled={submitting} // si tu Button soporta disabled
+              />
+            )}
+            actionsHeader="Acciones"
+            ariaLabel="Tabla de métodos de pago"
+          />
+        </div>
+      )}
 
-      {/* Modal de creación/edición */}
+      {/* Paginación */}
+      <div className="mt-2 flex justify-center">
+        <Pagination totalPages={totalPages} currentPage={currentPage} onPageChange={setCurrentPage} />
+      </div>
+
+      {/* Modal */}
       <Modal
-        open={open}
+        open={isModalOpen}
         onClose={() => {
-          setOpen(false);
+          // Evita cerrar el modal durante el envío
+          if (submitting) return;
+          closeModal();
           setEditing(null);
         }}
-        title={editing ? "Editar método de pago" : "Nuevo método de pago"}
+        title={editing ? 'Editar método de pago' : 'Nuevo método de pago'}
         icon={<CreditCard className="w-5 h-5" />}
         content={
-          editing && (
-            <MetodoPagoForm
-              value={editing}
-              onChange={setEditing}
-              onSubmit={handleSave}
-              formId={formId}
-            />
+          // 👉 Si editing es null mostramos skeleton (abre instantáneo),
+          //    luego montamos el form en el siguiente tick y onReady apaga modalLoading.
+          editing === null ? (
+            null
+          ) : (
+            <>
+              {(modalLoading || submitting) && <ModalSkeleton />}
+              <div className={(modalLoading || submitting) ? 'pointer-events-none opacity-60' : ''}>
+                <MetodoForm
+                  value={editing}
+                  onChange={setEditing}
+                  onSubmit={handleSave}
+                  formId="metodo-form"
+                  onReady={() => setModalLoading(false)}
+                  disabled={submitting} // ← bloquea los controles del form
+                />
+              </div>
+            </>
           )
         }
-        footer={
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => {
-                setOpen(false);
-                setEditing(null);
-              }}
-              className="inline-flex items-center rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium hover:bg-neutral-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              form={formId}
-              className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
-            >
-              Guardar
-            </button>
-          </div>
-        }
+        footer={<FooterModal disabled={submitting} />} // ← bloquea botones del footer
       />
-    </div>
-  );
-}
 
-function nextId(arr: MetodoPago[]) {
-  return (
-    (arr.reduce((max, m) => (m.id_metodo_pago > max ? m.id_metodo_pago : max), 0) || 0) + 1
+      <ConfirmDialog />
+    </div>
   );
 }

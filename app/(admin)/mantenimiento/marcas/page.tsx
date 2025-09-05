@@ -1,4 +1,3 @@
-// src/app/(tu-ruta)/page.tsx
 'use client';
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -28,8 +27,6 @@ import {
   useMarcasData,
 } from "./utils";
 
-
-
 export default function MarcasPage() {
   // UI store
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
@@ -45,6 +42,8 @@ export default function MarcasPage() {
 
   // Estado para mostrar skeleton mientras se prepara el form
   const [modalLoading, setModalLoading] = useState(false);
+  // Estado para bloquear UI durante el guardado
+  const [submitting, setSubmitting] = useState(false);
 
   // Data
   const {
@@ -120,7 +119,12 @@ export default function MarcasPage() {
       confirmText: exists ? "Actualizar" : "Crear",
       rejectText: "Cancelar",
       onConfirm: async () => {
-        await doSave({ exists });
+        setSubmitting(true); // 🔒 Bloquea la UI
+        try {
+          await doSave({ exists });
+        } finally {
+          setSubmitting(false); // 🔓 Desbloquea la UI
+        }
       },
     });
   };
@@ -190,8 +194,8 @@ export default function MarcasPage() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
-      <Alert  />
-      {error && <Alert  />}
+      <Alert />
+      {error && <Alert />}
 
       <Title
         showBackButton
@@ -219,6 +223,7 @@ export default function MarcasPage() {
             onClick={handleCreate}
             icon={<Plus className="w-4 h-4" />}
             variant="warning"
+            disabled={submitting} // evita crear mientras se envía otra acción
           >
             Nueva marca
           </Button>
@@ -229,22 +234,25 @@ export default function MarcasPage() {
       {loading ? (
         <TableSkeleton rows={10} showActions />
       ) : (
-        <Table
-          data={paginatedData}
-          columns={columns}
-          getRowId={(row) => row.id_marca}
-          actions={(row: Marca) => (
-            <Button
-              onClick={() => handleEdit(row)}
-              icon={<Pencil className="w-4 h-4" />}
-              iconOnly
-              variant="white"
-              aria-label="Editar"
-            />
-          )}
-          actionsHeader="Acciones"
-          ariaLabel="Tabla de marcas"
-        />
+        <div className={submitting ? "pointer-events-none opacity-60" : ""}>
+          <Table
+            data={paginatedData}
+            columns={columns}
+            getRowId={(row) => row.id_marca}
+            actions={(row: Marca) => (
+              <Button
+                onClick={() => handleEdit(row)}
+                icon={<Pencil className="w-4 h-4" />}
+                iconOnly
+                variant="white"
+                aria-label="Editar"
+                disabled={submitting} // deshabilita botón mientras envía
+              />
+            )}
+            actionsHeader="Acciones"
+            ariaLabel="Tabla de marcas"
+          />
+        </div>
       )}
 
       {/* Paginación */}
@@ -260,6 +268,8 @@ export default function MarcasPage() {
       <Modal
         open={isModalOpen}
         onClose={() => {
+          // Evita cerrar si está enviando
+          if (submitting) return;
           closeModal();
           setEditing(null);
         }}
@@ -272,20 +282,21 @@ export default function MarcasPage() {
             <ModalSkeleton />
           ) : (
             <>
-              {modalLoading && <ModalSkeleton />}
-              <div className={modalLoading ? "sr-only" : ""}>
+              {(modalLoading || submitting) && <ModalSkeleton />}
+              <div className={(modalLoading || submitting) ? "pointer-events-none opacity-60" : ""}>
                 <MarcaForm
                   value={editing}
                   onChange={setEditing}
                   onSubmit={handleSave}
                   formId="marca-form"
                   onReady={() => setModalLoading(false)}
+                  disabled={submitting} // 🔒 bloquea inputs/switch
                 />
               </div>
             </>
           )
         }
-        footer={<FooterModal />}
+        footer={<FooterModal disabled={submitting} />} // 🔒 bloquea botones del footer
       />
 
       <ConfirmDialog />

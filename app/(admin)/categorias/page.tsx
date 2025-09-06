@@ -1,90 +1,35 @@
+
 "use client";
 
 import React, { useMemo, useState } from "react";
+import * as Lucide from "lucide-react";
 import { Pencil, Plus, Tags, Search } from "lucide-react";
-import { Modal, Switch, Table, Title } from "@/components";
+import { Modal, Table, Title, Switch, Icono } from "@/components";
+import { Categoria, CategoriaForm } from "./components";
 
-// 👇 Tipo genérico Column (si no lo exportas desde "@/components")
+// Datos de ejemplo (reemplazar con fetch/DB)
+const initialData: Categoria[] = [
+  { id_categoria: 1, nombre_categoria: "Electrónica", activa: true, icono: "Cpu" },
+  { id_categoria: 2, nombre_categoria: "Hogar", activa: true, icono: "Home" },
+  { id_categoria: 3, nombre_categoria: "Ropa", activa: false, icono: "Shirt" },
+];
+
+// Tipo de icono laxo para evitar incompatibilidades internas de lucide
+type AnyIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>;
+const ICONS = Lucide as unknown as Record<string, AnyIcon>;
+function getIconByName(name?: string | null): AnyIcon | null {
+  if (!name) return null;
+  const Icon = ICONS[name as keyof typeof ICONS] as AnyIcon | undefined;
+  return Icon ?? null;
+}
+
+// Tipo de columna para la tabla
 type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
   align?: "left" | "center" | "right";
   className?: string;
 };
-
-// Tipos
-interface Categoria {
-  id_categoria: number;
-  nombre_categoria: string;
-  activa: boolean;
-}
-
-// Datos de ejemplo (reemplazar con fetch/DB)
-const initialData: Categoria[] = [
-  { id_categoria: 1, nombre_categoria: "Electrónica", activa: true },
-  { id_categoria: 2, nombre_categoria: "Hogar", activa: true },
-  { id_categoria: 3, nombre_categoria: "Ropa", activa: false },
-];
-
-/** Formulario de creación/edición */
-function CategoriaForm({
-  value,
-  onChange,
-  onSubmit,
-  formId = "categoria-form",
-}: {
-  value: Categoria;
-  onChange: (next: Categoria) => void;
-  onSubmit: () => void;
-  formId?: string;
-}) {
-  const [touched, setTouched] = useState(false);
-  const nombreValido = value.nombre_categoria.trim().length >= 2;
-
-  return (
-    <form
-      id={formId}
-      onSubmit={(e) => {
-        e.preventDefault();
-        setTouched(true);
-        if (!nombreValido) return;
-        onSubmit();
-      }}
-      className="space-y-4"
-    >
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-neutral-700">
-          Nombre de la categoría
-        </label>
-        <input
-          autoFocus
-          value={value.nombre_categoria}
-          onChange={(e) =>
-            onChange({ ...value, nombre_categoria: e.target.value })
-          }
-          placeholder="Ej. Electrónica"
-          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400"
-        />
-        {touched && !nombreValido && (
-          <p className="text-xs text-red-600">
-            Debe tener al menos 2 caracteres.
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={value.activa}
-          onChange={(next) => onChange({ ...value, activa: next })}
-          ariaLabel="Cambiar estado de la categoría"
-        />
-        <span className="text-sm font-medium text-neutral-700">
-          {value.activa ? "Activa" : "Inactiva"}
-        </span>
-      </div>
-    </form>
-  );
-}
 
 export default function CategoriasPage() {
   const [data, setData] = useState<Categoria[]>(initialData);
@@ -100,19 +45,17 @@ export default function CategoriasPage() {
     const q = query.trim().toLowerCase();
     if (!q) return data;
     return data.filter((c) =>
-      [c.id_categoria.toString(), c.nombre_categoria.toLowerCase()].some(
-        (val) => val.includes(q)
-      )
+      [
+        c.id_categoria.toString(),
+        c.nombre_categoria.toLowerCase(),
+        c.icono?.toLowerCase() || "",
+      ].some((val) => val.includes(q))
     );
   }, [data, query]);
 
   // Handlers CRUD
   const handleCreate = () => {
-    setEditing({
-      id_categoria: nextId(data),
-      nombre_categoria: "",
-      activa: true,
-    });
+    setEditing({ id_categoria: nextId(data), nombre_categoria: "", activa: true, icono: "Tags" });
     setOpen(true);
   };
 
@@ -123,11 +66,7 @@ export default function CategoriasPage() {
 
   const handleToggleActiva = (id: number, next?: boolean) => {
     setData((prev) =>
-      prev.map((c) =>
-        c.id_categoria === id
-          ? { ...c, activa: typeof next === "boolean" ? next : !c.activa }
-          : c
-      )
+      prev.map((c) => (c.id_categoria === id ? { ...c, activa: typeof next === "boolean" ? next : !c.activa } : c))
     );
   };
 
@@ -136,9 +75,7 @@ export default function CategoriasPage() {
     setData((prev) => {
       const exists = prev.some((c) => c.id_categoria === editing.id_categoria);
       if (exists) {
-        return prev.map((c) =>
-          c.id_categoria === editing.id_categoria ? editing : c
-        );
+        return prev.map((c) => (c.id_categoria === editing.id_categoria ? editing : c));
       }
       return [...prev, editing];
     });
@@ -146,7 +83,7 @@ export default function CategoriasPage() {
     setEditing(null);
   };
 
-  // Columnas
+  // Columnas con "Icono" separado
   const columns: Column<Categoria>[] = [
     {
       header: "ID",
@@ -155,13 +92,28 @@ export default function CategoriasPage() {
       cell: (row) => row.id_categoria,
     },
     {
+      header: "Icono",
+      className: "w-24 text-center",
+      align: "center",
+      cell: (row) => {
+        const Icon = getIconByName(row.icono);
+        return (
+          <div className="flex items-center justify-center gap-2">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-100">
+                  <Icono name={row.icono ?? undefined} size={16} />
+            </span>
+          </div>
+        );
+      },
+    },
+    {
       header: "Nombre",
-      className: "min-w-[200px] w-full text-left",
+      className: "min-w-[220px] w-full text-left",
       align: "left",
       cell: (row) => (
-        <span className="font-medium text-neutral-900">
-          {row.nombre_categoria}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-neutral-900">{row.nombre_categoria}</span>
+        </div>
       ),
     },
     {
@@ -175,9 +127,7 @@ export default function CategoriasPage() {
             onChange={(next) => handleToggleActiva(row.id_categoria, next)}
             ariaLabel={`Cambiar estado de ${row.nombre_categoria}`}
           />
-          <span className="text-xs font-medium text-neutral-700">
-            {row.activa ? "Activa" : "Inactiva"}
-          </span>
+          <span className="text-xs font-medium text-neutral-700">{row.activa ? "Activa" : "Inactiva"}</span>
         </div>
       ),
     },
@@ -235,6 +185,7 @@ export default function CategoriasPage() {
       {/* Modal */}
       <Modal
         open={open}
+        size="xl"
         onClose={() => {
           setOpen(false);
           setEditing(null);
@@ -276,12 +227,7 @@ export default function CategoriasPage() {
   );
 }
 
-// Generador de ID incremental
+// Util: generador de ID incremental
 function nextId(arr: Categoria[]) {
-  return (
-    (arr.reduce(
-      (max, c) => (c.id_categoria > max ? c.id_categoria : max),
-      0
-    ) || 0) + 1
-  );
+  return (arr.reduce((max, c) => (c.id_categoria > max ? c.id_categoria : max), 0) || 0) + 1;
 }

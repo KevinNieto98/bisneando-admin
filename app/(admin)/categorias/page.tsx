@@ -1,20 +1,31 @@
-
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as Lucide from "lucide-react";
 import { Pencil, Plus, Tags, Search } from "lucide-react";
-import { Modal, Table, Title, Switch, Icono } from "@/components";
-import { Categoria, CategoriaForm } from "./components";
+import {
+  Alert,
+  Modal,
+  Table,
+  Title,
+  Switch,
+  Icono,
+  ModalSkeleton,
+  TableSkeleton,   // 👈 NUEVO
+  Pagination,      // 👈 NUEVO
+} from "@/components";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"; // 👈 NUEVO
+import { Categoria, CategoriaForm, FooterModal } from "./components";
+import { useUIStore } from "@/store"; // <- ajusta la ruta
+import { postCategoriasAction, getCategoriasAction } from "./actions";
 
-// Datos de ejemplo (reemplazar con fetch/DB)
+// Datos de ejemplo (fallback)
 const initialData: Categoria[] = [
   { id_categoria: 1, nombre_categoria: "Electrónica", activa: true, icono: "Cpu" },
   { id_categoria: 2, nombre_categoria: "Hogar", activa: true, icono: "Home" },
   { id_categoria: 3, nombre_categoria: "Ropa", activa: false, icono: "Shirt" },
 ];
 
-// Tipo de icono laxo para evitar incompatibilidades internas de lucide
 type AnyIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 const ICONS = Lucide as unknown as Record<string, AnyIcon>;
 function getIconByName(name?: string | null): AnyIcon | null {
@@ -23,7 +34,6 @@ function getIconByName(name?: string | null): AnyIcon | null {
   return Icon ?? null;
 }
 
-// Tipo de columna para la tabla
 type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
@@ -34,13 +44,46 @@ type Column<T> = {
 export default function CategoriasPage() {
   const [data, setData] = useState<Categoria[]>(initialData);
   const [query, setQuery] = useState("");
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // Estado modal
+  // UI store
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
+  const openConfirm = useUIStore((s) => s.openConfirm); // 👈 para ConfirmDialog
+
+  // Modal & envío
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Categoria | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const formId = "categoria-form";
 
-  // Filtrado búsqueda
+  // Paginación (cliente)
+  const PAGE_SIZE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Carga inicial desde Supabase
+  useEffect(() => {
+    (async () => {
+      try {
+        const categorias = await getCategoriasAction();
+        if (Array.isArray(categorias) && categorias.length > 0) {
+          setData(categorias);
+        }
+      } catch (e) {
+        console.error("Error al cargar categorías:", e);
+        mostrarAlerta("Error", "No se pudieron cargar las categorías.", "danger");
+      } finally {
+        setInitialLoading(false);
+      }
+    })();
+  }, [mostrarAlerta]);
+
+  useEffect(() => {
+    if (open) setModalLoading(true);
+    else setModalLoading(false);
+  }, [open]);
+
+  // Filtrado + paginado
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return data;
@@ -53,44 +96,116 @@ export default function CategoriasPage() {
     );
   }, [data, query]);
 
-  // Handlers CRUD
+  // recalcular paginado al cambiar filtered o currentPage
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const start = (safePage - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  const paginatedData = filtered.slice(start, end);
+
+  // Handlers
   const handleCreate = () => {
-    setEditing({ id_categoria: nextId(data), nombre_categoria: "", activa: true, icono: "Tags" });
     setOpen(true);
+    setModalLoading(true);
+    setEditing(null);
+    setTimeout(() => {
+      setEditing({
+        id_categoria: nextId(data),
+        nombre_categoria: "",
+        activa: true,
+        icono: "Tags",
+      });
+    }, 0);
   };
 
   const handleEdit = (c: Categoria) => {
-    setEditing({ ...c });
     setOpen(true);
+    setModalLoading(true);
+    setEditing(null);
+    setTimeout(() => {
+      setEditing({ ...c });
+    }, 0);
   };
 
   const handleToggleActiva = (id: number, next?: boolean) => {
     setData((prev) =>
-      prev.map((c) => (c.id_categoria === id ? { ...c, activa: typeof next === "boolean" ? next : !c.activa } : c))
+      prev.map((c) =>
+        c.id_categoria === id
+          ? { ...c, activa: typeof next === "boolean" ? next : !c.activa }
+          : c
+      )
     );
   };
 
-  const handleSave = () => {
+  // Confirm + save (igual patrón que Marcas)
+  const handleSave = async () => {
     if (!editing) return;
-    setData((prev) => {
-      const exists = prev.some((c) => c.id_categoria === editing.id_categoria);
-      if (exists) {
-        return prev.map((c) => (c.id_categoria === editing.id_categoria ? editing : c));
-      }
-      return [...prev, editing];
+    const exists = data.some((c) => c.id_categoria === editing.id_categoria);
+
+    openConfirm({
+      titulo: exists ? "Confirmar actualización" : "Confirmar creación",
+      mensaje: exists
+        ? `¿Deseas actualizar la categoría "${editing.nombre_categoria}"?`
+        : `¿Deseas crear la categoría "${editing.nombre_categoria}"?`,
+      confirmText: exists ? "Actualizar" : "Crear",
+      rejectText: "Cancelar",
+      onConfirm: async () => {
+        setSubmitting(true);
+        try {
+          await doSave({ exists });
+        } finally {
+          setSubmitting(false);
+        }
+      },
     });
-    setOpen(false);
-    setEditing(null);
   };
 
-  // Columnas con "Icono" separado
+  const doSave = async ({ exists }: { exists: boolean }) => {
+    try {
+      if (exists) {
+        // UPDATE local (si luego agregas acción para DB, la llamas aquí)
+        setData((prev) =>
+          prev.map((c) => (c.id_categoria === editing!.id_categoria ? editing! : c))
+        );
+      } else {
+        // CREATE en DB
+        const created = await postCategoriasAction(
+          editing!.nombre_categoria,
+          editing!.activa,
+          editing!.icono ?? "Tags"
+        );
+
+        // Sync local usando respuesta de la DB
+        setData((prev) => [
+          ...prev,
+          {
+            id_categoria: created.id_categoria,
+            nombre_categoria: created.nombre_categoria,
+            activa: created.is_active,
+            icono: created.icono,
+          },
+        ]);
+      }
+
+      setOpen(false);
+      setEditing(null);
+
+      mostrarAlerta(
+        "¡Guardado!",
+        exists ? "La categoría se actualizó correctamente." : "La categoría se creó correctamente.",
+        "success"
+      );
+
+      // Vuelve a la primera página para ver el nuevo/actualizado
+      setCurrentPage(1);
+    } catch (e) {
+      console.error("Error al guardar categoría:", e);
+      mostrarAlerta("Error", "No se pudo guardar la categoría. Intenta de nuevo.", "danger");
+    }
+  };
+
   const columns: Column<Categoria>[] = [
-    {
-      header: "ID",
-      className: "w-16 text-center",
-      align: "center",
-      cell: (row) => row.id_categoria,
-    },
+    { header: "ID", className: "w-16 text-center", align: "center", cell: (row) => row.id_categoria },
     {
       header: "Icono",
       className: "w-24 text-center",
@@ -100,7 +215,7 @@ export default function CategoriasPage() {
         return (
           <div className="flex items-center justify-center gap-2">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-100">
-                  <Icono name={row.icono ?? undefined} size={16} />
+              <Icono name={row.icono ?? undefined} size={16} />
             </span>
           </div>
         );
@@ -127,7 +242,9 @@ export default function CategoriasPage() {
             onChange={(next) => handleToggleActiva(row.id_categoria, next)}
             ariaLabel={`Cambiar estado de ${row.nombre_categoria}`}
           />
-          <span className="text-xs font-medium text-neutral-700">{row.activa ? "Activa" : "Inactiva"}</span>
+          <span className="text-xs font-medium text-neutral-700">
+            {row.activa ? "Activa" : "Inactiva"}
+          </span>
         </div>
       ),
     },
@@ -135,7 +252,8 @@ export default function CategoriasPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
-      {/* Header */}
+      <Alert />
+
       <Title
         title="Categorías"
         subtitle="Catálogo de Categorías"
@@ -150,7 +268,10 @@ export default function CategoriasPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1); // 👈 reset página al buscar
+            }}
             placeholder="Buscar categoría..."
             className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10"
           />
@@ -158,6 +279,7 @@ export default function CategoriasPage() {
         <button
           onClick={handleCreate}
           className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
+          disabled={submitting}
         >
           <Plus className="w-4 h-4" />
           Nueva categoría
@@ -165,69 +287,84 @@ export default function CategoriasPage() {
       </div>
 
       {/* Tabla */}
-      <Table
-        data={filtered}
-        columns={columns}
-        getRowId={(row) => row.id_categoria}
-        actions={(row: Categoria) => (
-          <button
-            onClick={() => handleEdit(row)}
-            className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100"
-            aria-label="Editar"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-        )}
-        actionsHeader="Acciones"
-        ariaLabel="Tabla de categorías"
-      />
+      {initialLoading ? (
+        <TableSkeleton rows={10} showActions />  
+      ) : (
+        <div className={submitting ? "pointer-events-none opacity-60" : ""}>
+          <Table
+            data={paginatedData} 
+            columns={columns}
+            getRowId={(row) => row.id_categoria}
+            actions={(row: Categoria) => (
+              <button
+                onClick={() => handleEdit(row)}
+                className="inline-flex items-center rounded-lg p-2 hover:bg-neutral-100 disabled:opacity-60"
+                aria-label="Editar"
+                disabled={submitting}
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+            actionsHeader="Acciones"
+            ariaLabel="Tabla de categorías"
+          />
+        </div>
+      )}
+
+      {/* Paginación */}
+      <div className="mt-2 flex justify-center">
+        <Pagination
+          totalPages={totalPages}
+          currentPage={safePage}
+          onPageChange={setCurrentPage}
+        />
+      </div>
 
       {/* Modal */}
       <Modal
         open={open}
         size="xl"
         onClose={() => {
+          if (submitting) return;
           setOpen(false);
           setEditing(null);
         }}
         title={editing ? "Editar categoría" : "Nueva categoría"}
         icon={<Tags className="w-5 h-5" />}
         content={
-          editing && (
-            <CategoriaForm
-              value={editing}
-              onChange={setEditing}
-              onSubmit={handleSave}
-              formId={formId}
-            />
+          editing === null ? (
+            <ModalSkeleton />
+          ) : (
+            <>
+              {(modalLoading || submitting) && <ModalSkeleton />}
+              <div className={(modalLoading || submitting) ? "pointer-events-none opacity-60" : ""}>
+                <CategoriaForm
+                  value={editing}
+                  onChange={setEditing}
+                  onSubmit={handleSave}
+                  formId={formId}
+                  onReady={() => setModalLoading(false)}
+                  disabled={submitting}
+                />
+              </div>
+            </>
           )
         }
         footer={
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => {
-                setOpen(false);
-                setEditing(null);
-              }}
-              className="inline-flex items-center rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium hover:bg-neutral-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              form={formId}
-              className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
-            >
-              Guardar
-            </button>
-          </div>
+          <FooterModal
+            formId={formId}
+            onCancel={() => { if (!submitting) { setOpen(false); setEditing(null); } }}
+            disabled={submitting}
+          />
         }
       />
+
+      {/* Confirm global */}
+      <ConfirmDialog />
     </div>
   );
 }
 
-// Util: generador de ID incremental
 function nextId(arr: Categoria[]) {
   return (arr.reduce((max, c) => (c.id_categoria > max ? c.id_categoria : max), 0) || 0) + 1;
 }

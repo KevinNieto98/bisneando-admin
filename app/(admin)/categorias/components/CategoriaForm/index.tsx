@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { IconPicker, Switch } from "@/components";
 
 export interface Categoria {
@@ -15,6 +15,10 @@ export type CategoriaFormProps = {
   onChange: (next: Categoria) => void;
   onSubmit: () => void;
   formId?: string;
+  /** 🚀 Se llama cuando el formulario terminó de montarse */
+  onReady?: () => void;
+  /** 🔒 desactiva inputs y bloquea submit */
+  disabled?: boolean;
 };
 
 export function CategoriaForm({
@@ -22,42 +26,66 @@ export function CategoriaForm({
   onChange,
   onSubmit,
   formId = "categoria-form",
+  onReady,
+  disabled = false,
 }: CategoriaFormProps) {
   const [touched, setTouched] = useState(false);
-  const nombreValido = value.nombre_categoria.trim().length >= 2;
+  const nombreValido = (value.nombre_categoria ?? "").trim().length >= 2;
+
+  // Notifica al padre que el form ya está listo (montado)
+  useEffect(() => {
+    const t = setTimeout(() => onReady?.(), 0); // microtask para asegurar layout
+    return () => clearTimeout(t);
+  }, [onReady]);
 
   return (
     <form
       id={formId}
       onSubmit={(e) => {
         e.preventDefault();
+        if (disabled) return; // bloquea submit cuando está deshabilitado
         setTouched(true);
         if (!nombreValido) return;
         onSubmit();
       }}
       className="space-y-4"
+      noValidate
+      aria-busy={disabled}
     >
       <div className="space-y-1.5">
-        <label className="text-sm font-medium text-neutral-700">Nombre de la categoría</label>
+        <label htmlFor="nombre_categoria" className="text-sm font-medium text-neutral-700">
+          Nombre de la categoría
+        </label>
         <input
+          id="nombre_categoria"
           autoFocus
           value={value.nombre_categoria}
           onChange={(e) => onChange({ ...value, nombre_categoria: e.target.value })}
           placeholder="Ej. Electrónica"
-          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400"
+          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400 disabled:opacity-60"
+          aria-invalid={touched && !nombreValido}
+          aria-describedby="nombre_categoria_help"
+          autoComplete="off"
+          disabled={disabled}
         />
         {touched && !nombreValido && (
-          <p className="text-xs text-red-600">Debe tener al menos 2 caracteres.</p>
+          <p id="nombre_categoria_help" className="text-xs text-red-600">
+            Debe tener al menos 2 caracteres.
+          </p>
         )}
       </div>
 
       <div className="flex items-center gap-3">
         <Switch
           checked={value.activa}
-          onChange={(next) => onChange({ ...value, activa: next })}
+          onChange={(next: boolean) => !disabled && onChange({ ...value, activa: next })}
           ariaLabel="Cambiar estado de la categoría"
+          // Si tu Switch soporta "disabled", descomenta la línea siguiente:
+          // disabled={disabled as any}
         />
-        <span className="text-sm font-medium text-neutral-700">{value.activa ? "Activa" : "Inactiva"}</span>
+        <span className="text-sm font-medium text-neutral-700">
+          {value.activa ? "Activa" : "Inactiva"}
+        </span>
       </div>
 
       {/* Selector de icono */}
@@ -66,7 +94,9 @@ export function CategoriaForm({
         <div className="flex items-center gap-3">
           <IconPicker
             value={value.icono ?? null}
-            onChange={(name) => onChange({ ...value, icono: name })}
+            onChange={(name) => !disabled && onChange({ ...value, icono: name })}
+            // Si tu IconPicker soporta "disabled", descomenta:
+            // disabled={disabled as any}
           />
           {value.icono && (
             <span className="text-xs text-neutral-600">Seleccionado: {value.icono}</span>

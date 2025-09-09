@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 
 interface FooterModalProps {
   formId: string;
@@ -14,8 +14,8 @@ export const FooterModal: React.FC<FooterModalProps> = ({
   formId,
   onCancel,
   disabled = false,
-  cancelText = 'Cancelar',
-  saveText = 'Guardar',
+  cancelText = "Cancelar",
+  saveText = "Guardar",
 }) => {
   return (
     <div className="flex items-center justify-end gap-2">

@@ -32,6 +32,7 @@ export async function getMenusAction(
   const url = new URL(`${base}/rest/v1/tbl_menus`);
   // 👇 Solo columnas que existen en tu tabla
   url.searchParams.set("select", "id_menu,nombre,subtitulo,href,icon_name");
+  url.searchParams.set("is_active", "eq.true");
   url.searchParams.set("menu", `eq.${menu}`);
   url.searchParams.set("order", "id_menu.asc");
 

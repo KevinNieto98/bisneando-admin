@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { IconPicker, Switch } from "@/components";
+import { getActiveMenuHeadAction } from "../../../actions";
 
 export type MenuFormValue = {
   id_menu: number;
@@ -9,7 +10,7 @@ export type MenuFormValue = {
   subtitulo?: string | null;
   href: string;
   iconName?: string | null;
-  menu?: string | null;
+  menu?: string | null; // aquí guardaremos el NOMBRE del Menu Head elegido
   activa: boolean;
 };
 
@@ -22,14 +23,54 @@ export type MenuFormProps = {
   disabled?: boolean;
 };
 
-export function MenuForm({ value, onChange, onSubmit, formId = "menu-form", onReady, disabled = false, }: MenuFormProps) {
+type ActiveMenuHead = {
+  id_menu_head: number;
+  nombre: string;
+  is_active: boolean;
+};
+
+export function MenuForm({
+  value,
+  onChange,
+  onSubmit,
+  formId = "menu-form",
+  onReady,
+  disabled = false,
+}: MenuFormProps) {
   const [touched, setTouched] = useState(false);
+
+  // --- cargar menu heads activos ---
+  const [heads, setHeads] = useState<ActiveMenuHead[]>([]);
+  const [loadingHeads, setLoadingHeads] = useState(true);
+  const [errorHeads, setErrorHeads] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoadingHeads(true);
+        setErrorHeads(null);
+        const data = await getActiveMenuHeadAction();
+        if (!alive) return;
+        setHeads(Array.isArray(data) ? data : []);
+      } catch {
+        if (!alive) return;
+        setErrorHeads("No se pudieron cargar los Menú Head activos.");
+        setHeads([]);
+      } finally {
+        if (alive) setLoadingHeads(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // si el value.menu viene precargado pero no existe en la lista, no forzamos nada
+  // si quieres forzar selección cuando carguen los heads, puedes autoasignar el primero aquí.
 
   const nombreValido = (value.nombre ?? "").trim().length >= 2;
   const hrefValido = useMemo(() => {
     const h = (value.href ?? "").trim();
     if (!h) return false;
-    // acepta rutas absolutas del app router o externas (http/https)
     return h.startsWith("/") || /^https?:\/\//i.test(h);
   }, [value.href]);
 
@@ -50,7 +91,7 @@ export function MenuForm({ value, onChange, onSubmit, formId = "menu-form", onRe
       }}
       className="space-y-4"
       noValidate
-      aria-busy={disabled}
+      aria-busy={disabled || loadingHeads}
     >
       {/* Nombre */}
       <div className="space-y-1.5">
@@ -112,16 +153,30 @@ export function MenuForm({ value, onChange, onSubmit, formId = "menu-form", onRe
         <p className="text-[11px] text-neutral-500">Nombre del ícono de lucide-react (p. ej. "PanelsTopLeft").</p>
       </div>
 
-      {/* Grupo/Menu */}
+      {/* Menú / Grupo (selector de Menu Head Activo) */}
       <div className="space-y-1.5">
-        <label htmlFor="menu" className="text-sm font-medium text-neutral-700">Menú / Grupo</label>
-        <input
-          id="menu"
+        <label htmlFor="menu_head_selector" className="text-sm font-medium text-neutral-700">
+          Menú / Grupo (solo activos)
+        </label>
+        <select
+          id="menu_head_selector"
+          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400 disabled:opacity-60"
           value={value.menu ?? ""}
           onChange={(e) => onChange({ ...value, menu: e.target.value })}
-          placeholder="Ej. analitica, config, general"
-          className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400 disabled:opacity-60"
-        />
+          disabled={disabled || loadingHeads || !!errorHeads}
+        >
+          <option value="" disabled>
+            {loadingHeads ? "Cargando..." : "Seleccione un Menú / Grupo"}
+          </option>
+          {heads.map(h => (
+            <option key={h.id_menu_head} value={h.nombre}>
+              {h.nombre}
+            </option>
+          ))}
+        </select>
+        {errorHeads && (
+          <p className="text-xs text-red-600">{errorHeads}</p>
+        )}
       </div>
 
       {/* Estado */}

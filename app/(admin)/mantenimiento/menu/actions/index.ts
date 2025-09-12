@@ -103,6 +103,34 @@ export async function getMenusHeadAction(): Promise<MenuHeadRow[]> {
   return res.json();
 }
 
+
+export async function getActiveMenuHeadAction(): Promise<MenuHeadRow[]> {
+  const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!baseUrl || !apiKey) {
+    console.error("Faltan variables NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+    return [];
+  }
+
+  // Trae solo los que tienen is_active = true
+  const url = `${baseUrl}/rest/v1/tbl_menus_head?select=*&is_active=eq.true&order=id_menu_head.asc`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error("Error al obtener Menú Head activos:", res.status, await res.text());
+    return [];
+  }
+
+  return res.json();
+}
+ 
 /** POST con normalización a MAYÚSCULAS */
 export async function postMenusHeadAction(input: { nombre: string; is_active: boolean }): Promise<MenuHeadRow> {
   const nombreUp = (input.nombre ?? "").trim().toUpperCase();

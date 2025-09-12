@@ -1,11 +1,20 @@
-// =============================
-// /app/menus/page.tsx
-// =============================
-"use client";
 
+import type { Metadata } from "next";
 import { Tabs, TabsList, TabsTrigger, TabsContent, Title } from "@/components";
 import { LayoutList, PanelsTopLeft } from "lucide-react";
 import { MenuContainer, MenuHeadContainer } from "./components";
+
+
+export const metadata: Metadata = {
+  title: "Menús",
+  description: "Catálogo de menús del sistema (Menús y Head).",
+  keywords: ["menús", "mantenimiento", "catálogo", "menu head", "configuración"],
+  openGraph: {
+    title: "Menús",
+    description: "Catálogo de menús del sistema (Menús y Head).",
+  },
+};
+
 
 export default function MenusPage() {
   return (

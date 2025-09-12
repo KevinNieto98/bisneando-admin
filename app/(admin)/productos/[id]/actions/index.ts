@@ -1,5 +1,7 @@
 /** Obtiene todas las categorías activas desde tbl_categorias */
 
+import { supabase } from "@/utils/supabase/client"
+
 export type CategoriaRow = {
   id_categoria: number
   nombre_categoria: string
@@ -85,3 +87,77 @@ export async function getMarcasActivasAction(): Promise<MarcaRow[]> {
 
   return res.json() as Promise<MarcaRow[]>;
 }
+
+
+export async function postProductosAction(
+  nombre_producto: string,
+  is_active: boolean,
+  qty: number,
+  slug: string,
+  precio: number,
+  id_categoria: number,
+  descripcion: string
+) {
+  const { data, error } = await supabase
+    .from('tbl_productos')
+    .insert([
+      {
+        nombre_producto,
+        is_active,
+        qty,
+        slug,
+        precio,
+        id_categoria,
+        descripcion,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  return data as {
+    id_producto: number;      // viene generado en BD
+    nombre_producto: string;
+    is_active: boolean;
+    qty: number;
+    slug: string;
+    precio: number;
+    id_categoria: number;
+    descripcion: string;
+    fecha_creacion: string;   // default NOW()
+    usuario_creacion: string; // default/triggers
+    usuario_actualiza?: string;
+    fecha_actualizacion?: string;
+  };
+}
+
+
+type ImagenRow = {
+  id_producto: number;
+  url_Imagen: string;
+  is_principal: boolean;
+  orden: number;
+};
+
+export async function insertImagenesProductosAction(rows: ImagenRow[]) {
+  if (!rows?.length) return [];
+
+  const { data, error } = await supabase
+    .from("tbl_imagenes_producto")
+    .insert(rows)
+    .select();
+
+  if (error) throw new Error(error.message);
+
+  // Asumiendo que id_imagen es autoincremental y fecha_creacion tiene DEFAULT CURRENT_TIMESTAMP
+  return data as {
+    id_imagen: number;
+    id_producto: number;
+    url_Imagen: string;
+    es_principal: boolean;
+    orden: number;
+    fecha_creacion: string;
+  }[];
+}
+

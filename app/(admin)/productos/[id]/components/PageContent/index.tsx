@@ -2,7 +2,7 @@
 
 import React, { use, useEffect, useMemo, useRef, useState } from "react";
 import { Boxes, ImagePlus, Trash2, Upload, Minus, Plus } from "lucide-react";
-import { Title, Switch, Button } from "@/components";
+import { Title, Switch, Button, ImageUploaded } from "@/components";
 import { initialData } from "@/seed/seed";
 import { getCategoriasActivasAction, getMarcasActivasAction } from "../../actions";
 
@@ -477,19 +477,17 @@ export function PageContent({ params }: Props) {
             <>
               <div className="text-xs text-neutral-500">Existentes</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                {form.imagenes.map((src, idx) => (
-                  <div key={`old-${idx}-${src}`} className="relative aspect-square overflow-hidden rounded-xl border bg-white">
-                    <img src={src.startsWith("/") ? src : `/products/${src}`} alt="" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeExistingImage(idx)}
-                      className="absolute right-1.5 top-1.5 inline-flex items-center rounded-md bg-white/90 p-1 shadow hover:bg-white"
-                      title="Quitar"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </button>
-                  </div>
-                ))}
+                {form.imagenes.map((src, idx) => {
+                  const url = src.startsWith("/") ? src : `/products/${src}`;
+                  return (
+                    <ImageUploaded
+                      key={`old-${idx}-${src}`}
+                      url={url}
+                      fileName={src} // opcional; puedes quitarlo si no lo quieres en el alt
+                      onRemove={() => removeExistingImage(idx)}
+                    />
+                  );
+                })}
               </div>
             </>
           )}
@@ -499,18 +497,14 @@ export function PageContent({ params }: Props) {
               <div className="text-xs text-neutral-500">Por subir</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
                 {previews.map((p) => (
-                  <div key={p.url} className="relative aspect-square overflow-hidden rounded-xl border bg-white">
-                    <img src={p.url} alt={p.file.name} className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeNewImage(p.file)}
-                      className="absolute right-1.5 top-1.5 inline-flex items-center rounded-md bg-white/90 p-1 shadow hover:bg-white"
-                      title="Quitar"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </button>
-                  </div>
+                  <ImageUploaded
+                    key={p.url}
+                    url={p.url}
+                    fileName={p.file.name}
+                    onRemove={() => removeNewImage(p.file)}
+                  />
                 ))}
+
               </div>
             </>
           )}

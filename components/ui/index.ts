@@ -25,6 +25,7 @@ export * from './image-dropzone';
 export * from './icon-picker';
 export * from './icon';
 export * from './stats-card';
+export * from './image-uploaded';
 
 
 

@@ -3,7 +3,7 @@ import { PageContent } from "./components";
 
 // 📌 Metadata de la página Usuarios
 export const metadata: Metadata = {
-  title: "Usuarios",
+  title: "Crear Usuarios",
   description: "Administra los usuarios de la plataforma: búsqueda, bloqueo y gestión de pedidos.",
 };
 

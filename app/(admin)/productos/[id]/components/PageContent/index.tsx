@@ -7,19 +7,42 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useUIStore } from "@/store";
 import { useRouter } from "next/navigation";
 
-
 import { initialData } from "@/seed/seed";
 import {
   getCategoriasActivasAction,
   getMarcasActivasAction,
   insertImagenesProductosAction,
   postProductosAction,
+  getProductoByIdAction,
+  reorderImagenesAction,
+  deleteMissingImagenesAction,
+  updateProductoAction, // 👈 integrado
 } from "../../actions";
 import { supabase } from "@/utils/supabase/client";
 
 type Props = {
   params: Promise<{ id?: string }>;
 };
+
+
+const isAbsoluteUrl = (s: string) => /^https?:\/\//i.test(s);
+
+const normalizeImageUrl = (s: string) => {
+  if (!s) return s;
+  if (isAbsoluteUrl(s)) return s;     // viene de Supabase (https://...)
+  if (s.startsWith("/")) return s;    // ya es absoluta en tu dominio
+  return `/products/${s}`;            // relativo del seed u otros
+};
+
+const filenameFrom = (s: string) => {
+  try {
+    if (isAbsoluteUrl(s)) return s.split("/").pop() || s;
+    return s.replace(/^\/+/, "").split("/").pop() || s;
+  } catch {
+    return s;
+  }
+};
+
 
 const toSlug = (s: string) =>
   s.normalize("NFD")
@@ -68,6 +91,17 @@ type MarcaActiva = {
   nombre_marca: string;
 };
 
+type FormErrors = {
+  nombre?: string;
+  slug?: string;
+  categoria?: string;
+  precio?: string;
+  qty?: string;
+  descripcion?: string;
+  marca?: string;
+  // imagenes?: string;
+};
+
 export function PageContent({ params }: Props) {
   const router = useRouter();
   const { id } = use(params);
@@ -76,6 +110,8 @@ export function PageContent({ params }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [touchedSlug, setTouchedSlug] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // UI store
@@ -162,38 +198,96 @@ export function PageContent({ params }: Props) {
     return () => { alive = false; };
   }, []);
 
-  // ------- edición desde seed -------
+  // ------- edición: cargar desde BD por id -------
   useEffect(() => {
+    let alive = true;
+
     if (isCreate) {
       setLoading(false);
       return;
     }
-    const seed = id ? getProductoFromSeed(id) : null;
-    if (seed) {
-      const mapped: FormState = {
-        id: (seed as any).id ?? (seed as any)._id ?? id,
-        nombre: (seed as SeedProduct).title ?? "",
-        qty: (seed as SeedProduct).inStock ?? 0,
-        categoria: (seed as SeedProduct).category ?? "Seleccione...",
-        subcategoria: (seed as any).subcategory ?? "Seleccione...",
-        descripcion: (seed as any).description ?? "",
-        precio: (seed as SeedProduct).price ?? 0,
-        marca: (seed as SeedProduct).brand ?? "",
-        slug: (seed as SeedProduct).slug ?? "",
-        activo: Boolean((seed as any).isActive ?? true),
-        imagenes: (seed as SeedProduct).images ?? [],
-        nuevasImagenes: [],
-      };
-      setForm(mapped);
-    }
-    setLoading(false);
-  }, [id, isCreate]);
+
+    // Esperar a cats/marcas para mapear ID -> nombre
+    if (catsLoading || marcasLoading) return;
+
+    (async () => {
+      try {
+        const numericId = Number(id);
+        let mappedFromDB = false;
+
+        if (!Number.isNaN(numericId) && numericId > 0) {
+          const producto = await getProductoByIdAction(numericId);
+          if (producto && alive) {
+            const catName =
+              cats.find((c) => c.id_categoria === producto.id_categoria)?.nombre_categoria ??
+              "Seleccione...";
+            const marcaName =
+              marcas.find((m) => m.id_marca === (producto.id_marca ?? -1))?.nombre_marca ?? "";
+
+            const imagenesOrdenadas = (producto.imagenes ?? [])
+              .sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0))
+              .map((img: any) => img.url_imagen);
+
+            const mapped: FormState = {
+              id: producto.id_producto,
+              nombre: producto.nombre_producto ?? "",
+              qty: Number(producto.qty ?? 0),
+              categoria: catName,
+              subcategoria: "Seleccione...", // si manejas subcategorías, mapéala aquí
+              descripcion: producto.descripcion ?? "",
+              precio: Number(producto.precio ?? 0),
+              marca: marcaName,
+              slug: toSlug(producto.nombre_producto ?? ""),
+              activo: Boolean(producto.is_active),
+              imagenes: imagenesOrdenadas,
+              nuevasImagenes: [],
+            };
+
+            setForm(mapped);
+            mappedFromDB = true;
+          }
+        }
+
+        // Fallback a seed si no se encontró en BD
+        if (!mappedFromDB && alive) {
+          const seed = id ? getProductoFromSeed(String(id)) : null;
+          if (seed) {
+            const mapped: FormState = {
+              id: (seed as any).id ?? (seed as any)._id ?? id,
+              nombre: (seed as SeedProduct).title ?? "",
+              qty: (seed as SeedProduct).inStock ?? 0,
+              categoria: (seed as SeedProduct).category ?? "Seleccione...",
+              subcategoria: (seed as any).subcategory ?? "Seleccione...",
+              descripcion: (seed as any).description ?? "",
+              precio: (seed as SeedProduct).price ?? 0,
+              marca: (seed as SeedProduct).brand ?? "",
+              slug: (seed as SeedProduct).slug ?? "",
+              activo: Boolean((seed as any).isActive ?? true),
+              imagenes: (seed as SeedProduct).images ?? [],
+              nuevasImagenes: [],
+            };
+            setForm(mapped);
+          } else {
+            mostrarAlerta("No encontrado", "No existe el producto solicitado.", "warning");
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        mostrarAlerta("Error", "No se pudo cargar el producto.", "danger");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, [id, isCreate, catsLoading, marcasLoading]); // depende de cats/marcas para mapear nombres
 
   // ------- auto-slug -------
   useEffect(() => {
     if (!touchedSlug) setForm((prev) => ({ ...prev, slug: toSlug(prev.nombre) }));
   }, [form.nombre, touchedSlug]);
 
+  // ------- previews -------
   const previews = useMemo(
     () => form.nuevasImagenes.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [form.nuevasImagenes]
@@ -231,13 +325,42 @@ export function PageContent({ params }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // ------- validación centralizada -------
+  const validate = (state: FormState): FormErrors => {
+    const errors: FormErrors = {};
+    if (!state.nombre.trim()) errors.nombre = "El nombre es requerido.";
+    if (!state.slug.trim()) errors.slug = "El slug es requerido.";
+    if (state.categoria === "Seleccione...") errors.categoria = "Selecciona una categoría.";
+    if (!state.descripcion.trim()) errors.descripcion = "La descripción es requerida.";
+    if (Number(state.precio) <= 0) errors.precio = "El precio debe ser mayor a 0.";
+    if (Number(state.qty) <= 0) errors.qty = "La cantidad debe ser mayor a 0.";
+    if (!state.marca.trim()) errors.marca = "Selecciona una marca.";
+    // Si quieres forzar al menos una imagen:
+    // if ((state.imagenes?.length ?? 0) === 0 && (state.nuevasImagenes?.length ?? 0) === 0) {
+    //   errors.imagenes = "Agrega al menos una imagen.";
+    // }
+    return errors;
+  };
+
+  const errors = validate(form);
+
   // ------- submit con confirm -------
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowErrors(true);
 
-    if (!form.nombre.trim()) return mostrarAlerta("Validación", "El nombre del producto es requerido.", "warning");
-    if (form.categoria === "Seleccione...") return mostrarAlerta("Validación", "Selecciona una categoría.", "warning");
-    if (!form.slug) return mostrarAlerta("Validación", "El slug no puede estar vacío.", "warning");
+    if (Object.keys(errors).length > 0) {
+      const firstMsg =
+        errors.nombre ||
+        errors.slug ||
+        errors.categoria ||
+        errors.descripcion ||
+        errors.precio ||
+        errors.qty ||
+        errors.marca; // 👈 incluye marca
+      mostrarAlerta("Validación", firstMsg ?? "Completa los campos requeridos.", "warning");
+      return;
+    }
 
     openConfirm({
       titulo: isCreate ? "Confirmar creación" : "Confirmar actualización",
@@ -251,19 +374,26 @@ export function PageContent({ params }: Props) {
     });
   };
 
-  // ------- SAVE orchestration -------
-  const doSave = async () => {
-    // Resolver id_categoria
-    const cat = cats.find((c) => c.nombre_categoria === form.categoria);
-    const idCategoria = cat?.id_categoria;
-    if (!idCategoria) {
-      return mostrarAlerta("Error", "No se pudo resolver la categoría seleccionada.", "danger");
-    }
+const doSave = async () => {
+  // Resolver id_categoria
+  const cat = cats.find((c) => c.nombre_categoria === form.categoria);
+  const idCategoria = cat?.id_categoria;
+  if (!idCategoria) {
+    return mostrarAlerta("Error", "No se pudo resolver la categoría seleccionada.", "danger");
+  }
 
-    try {
-      setSaving(true);
+  // Resolver id_marca
+  const marcaSel = marcas.find((m) => m.nombre_marca === form.marca);
+  const idMarca = marcaSel?.id_marca ?? null;
 
-      // 1) Crear producto
+  try {
+    setSaving(true);
+
+    const bucket = "imagenes_productos";
+    let idProducto: number;
+
+    if (isCreate) {
+      // ------- CREAR -------
       const created = await postProductosAction(
         form.nombre.trim(),
         form.activo,
@@ -271,16 +401,15 @@ export function PageContent({ params }: Props) {
         form.slug,
         form.precio,
         idCategoria,
-        form.descripcion.trim()
+        form.descripcion.trim(),
+        idMarca
       );
+      idProducto = created.id_producto;
 
-      const idProducto = created.id_producto;
-
-      // 2) Subir imágenes nuevas al bucket y recolectar URLs públicas
-      const bucket = "imagenes_productos";
+      // Subir nuevas imágenes
       const imagenRows: {
         id_producto: number;
-        url_Imagen: string;
+        url_imagen: string;
         is_principal: boolean;
         orden: number;
       }[] = [];
@@ -289,42 +418,113 @@ export function PageContent({ params }: Props) {
         const file = form.nuevasImagenes[i];
         const cleanName = file.name.replace(/\s+/g, "-").toLowerCase();
         const path = `${idProducto}/${Date.now()}-${i + 1}-${cleanName}`;
+        const { error: uploadErr } = await supabase.storage.from(bucket).upload(path, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+        if (uploadErr) throw new Error(`Error subiendo imagen "${file.name}": ${uploadErr.message}`);
 
-        const { error: uploadErr } = await supabase
-          .storage
-          .from(bucket)
-          .upload(path, file, { cacheControl: "3600", upsert: true });
-
-        if (uploadErr) {
-          throw new Error(`Error subiendo imagen "${file.name}": ${uploadErr.message}`);
-        }
-
-        // Obtener URL pública
         const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
         const publicUrl = pub.publicUrl;
 
         imagenRows.push({
           id_producto: idProducto,
-          url_Imagen: publicUrl,
-          is_principal: i === 0, // la primera es principal
+          url_imagen: publicUrl,
+          is_principal: i === 0,
           orden: i + 1,
         });
       }
 
-      // 3) Insertar filas en tbl_imagenes_productos
       if (imagenRows.length > 0) {
         await insertImagenesProductosAction(imagenRows);
       }
 
       mostrarAlerta("¡Guardado!", "El producto se creó correctamente.", "success");
-   //   router.push(`/productos/inventario`);
-    } catch (err: any) {
-      console.error(err);
-      mostrarAlerta("Error", err?.message ?? "No se pudo guardar el producto.", "danger");
-    } finally {
-      setSaving(false);
+      router.push(`/productos/inventario`);
+      return;
     }
-  };
+
+    // ------- ACTUALIZAR -------
+    idProducto = Number(form.id);
+    if (!idProducto || Number.isNaN(idProducto)) {
+      throw new Error("ID de producto inválido para actualización.");
+    }
+
+    // 1) Update de producto
+    await updateProductoAction(idProducto, {
+      nombre_producto: form.nombre.trim(),
+      is_active: form.activo,
+      qty: form.qty,
+      slug: form.slug,
+      precio: form.precio,
+      id_categoria: idCategoria,
+      descripcion: form.descripcion.trim(),
+      id_marca: idMarca,
+    });
+
+    // 2) Subir nuevas imágenes y recolectar sus public URLs
+    const newUrls: string[] = [];
+    for (let i = 0; i < form.nuevasImagenes.length; i++) {
+      const file = form.nuevasImagenes[i];
+      const cleanName = file.name.replace(/\s+/g, "-").toLowerCase();
+      const path = `${idProducto}/${Date.now()}-${i + 1}-${cleanName}`;
+
+      const { error: uploadErr } = await supabase
+        .storage
+        .from(bucket)
+        .upload(path, file, { cacheControl: "3600", upsert: true });
+
+      if (uploadErr) {
+        throw new Error(`Error subiendo imagen "${file.name}": ${uploadErr.message}`);
+      }
+
+      const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
+      newUrls.push(pub.publicUrl);
+    }
+
+    // 3) Las imágenes que permanecen (las que ves en el grid "Existentes")
+    //    Nota: aquí asumimos que `form.imagenes` trae URLs públicas de supabase (normalize ya para previews)
+    const keepUrls = (form.imagenes ?? []).filter(Boolean);
+
+    // 4) Borrar en BD (y storage si se puede) las que ya no están
+    await deleteMissingImagenesAction(idProducto, keepUrls);
+
+    // 5) Insertar filas nuevas
+    if (newUrls.length > 0) {
+      const start = keepUrls.length; // para continuar el orden
+      const rows = newUrls.map((url, i) => ({
+        id_producto: idProducto,
+        url_imagen: url,
+        is_principal: false,       // ajustamos luego en reorder
+        orden: start + i + 1,
+      }));
+      await insertImagenesProductosAction(rows);
+    }
+
+    // 6) Reordenar y marcar principal (primera de la lista final será principal)
+    const finalUrls = [...keepUrls, ...newUrls];
+    if (finalUrls.length > 0) {
+      await reorderImagenesAction(idProducto, finalUrls);
+    }
+
+    mostrarAlerta("¡Actualizado!", "El producto se actualizó correctamente.", "success");
+    router.push(`/productos/inventario`);
+  } catch (err: any) {
+    console.error(err);
+    mostrarAlerta("Error", err?.message ?? "No se pudo guardar el producto.", "danger");
+  } finally {
+    setSaving(false);
+  }
+};
+
+  // ------- estilos helper -------
+  const selectClass = (hasError: boolean) =>
+    [
+      "w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none",
+      "focus:ring-2 focus:ring-neutral-900/10",
+      hasError ? "border-red-500 focus:border-red-500 focus:ring-red-300" : "border-neutral-300 focus:border-neutral-400",
+      (formDisabled ? "opacity-60 pointer-events-none" : "")
+    ].join(" ");
 
   // ------- UI -------
   if (loading) {
@@ -371,6 +571,7 @@ export function PageContent({ params }: Props) {
           <Input
             label="Nombre del producto"
             isRequired
+            hasError={showErrors && !!errors.nombre}
             value={form.nombre}
             placeholder="Ej. Laptop Pro 14”"
             onChange={(e) => setField("nombre", e.target.value)}
@@ -380,6 +581,7 @@ export function PageContent({ params }: Props) {
           <Input
             label={!touchedSlug && form.nombre ? `Slug (autogenerado de “${form.nombre}”)` : "Slug"}
             isRequired
+            hasError={showErrors && !!errors.slug}
             value={form.slug}
             placeholder="ej. laptop-pro-14"
             onChange={(e) => {
@@ -391,12 +593,14 @@ export function PageContent({ params }: Props) {
 
           {/* Marca */}
           <div className={`${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Marca</label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Marca <span className="text-red-600">*</span>
+            </label>
             <select
               value={form.marca}
               onChange={(e) => setField("marca", e.target.value)}
               disabled={marcasLoading || !!marcasError || formDisabled}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10 disabled:opacity-60"
+              className={selectClass(showErrors && !!errors.marca)}
             >
               <option value="">{marcasLoading ? "Cargando marcas..." : "Seleccione..."}</option>
               {!marcasLoading && !marcasError && marcas.map((m) => (
@@ -409,11 +613,14 @@ export function PageContent({ params }: Props) {
               )}
             </select>
             {marcasError && <p className="mt-1 text-xs text-red-600">{marcasError}</p>}
+            {showErrors && errors.marca && <p className="mt-1 text-xs text-red-600">{errors.marca}</p>}
           </div>
 
           <Input
             label="Precio (HNL)"
             inputMode="decimal"
+            isRequired
+            hasError={showErrors && !!errors.precio}
             value={String(form.precio)}
             placeholder="0.00"
             onChange={(e) => onPrecioChange(e.target.value)}
@@ -427,9 +634,11 @@ export function PageContent({ params }: Props) {
                 <Minus className="w-4 h-4" />
               </button>
               <Input
-                className="border-0 rounded-none text-center"
+                className={["border-0 rounded-none text-center", (showErrors && !!errors.qty) ? "ring-2 ring-red-300" : ""].join(" ")}
                 value={String(form.qty)}
                 inputMode="numeric"
+                isRequired
+                hasError={showErrors && !!errors.qty}
                 onChange={(e) => onQtyChange(e.target.value)}
                 aria-label="Cantidad"
                 disabled={formDisabled}
@@ -438,6 +647,7 @@ export function PageContent({ params }: Props) {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+            {showErrors && errors.qty && <p className="mt-1 text-xs text-red-600">{errors.qty}</p>}
           </div>
 
           <div className="flex items-center gap-3 mt-6 md:mt-0">
@@ -456,12 +666,14 @@ export function PageContent({ params }: Props) {
         {/* Categoría */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className={`${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Categoría</label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Categoría <span className="text-red-600">*</span>
+            </label>
             <select
               value={form.categoria}
               onChange={(e) => setField("categoria", e.target.value)}
               disabled={catsLoading || !!catsError || formDisabled}
-              className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10 disabled:opacity-60"
+              className={selectClass(showErrors && !!errors.categoria)}
             >
               <option value="Seleccione..." disabled>
                 {catsLoading ? "Cargando categorías..." : "Seleccione..."}
@@ -473,83 +685,96 @@ export function PageContent({ params }: Props) {
               ))}
             </select>
             {catsError && <p className="mt-1 text-xs text-red-600">{catsError}</p>}
+            {showErrors && errors.categoria && <p className="mt-1 text-xs text-red-600">{errors.categoria}</p>}
           </div>
         </div>
 
         {/* Descripción */}
         <div className={`${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Descripción</label>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">
+            Descripción <span className="text-red-600">*</span>
+          </label>
           <textarea
             rows={5}
             value={form.descripcion}
             onChange={(e) => setField("descripcion", e.target.value)}
             placeholder="Describe el producto…"
             disabled={formDisabled}
-            className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-900/10 disabled:opacity-60"
+            className={[
+              "w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none",
+              "focus:ring-2 focus:ring-neutral-900/10",
+              (showErrors && !!errors.descripcion)
+                ? "border-red-500 focus:border-red-500 focus:ring-red-300"
+                : "border-neutral-300 focus:border-neutral-400",
+            ].join(" ")}
           />
+          {showErrors && errors.descripcion && <p className="mt-1 text-xs text-red-600">{errors.descripcion}</p>}
         </div>
 
-        {/* Imágenes */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-neutral-800">Imágenes del producto</label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => !formDisabled && fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
-                disabled={formDisabled}
-              >
-                <Upload className="w-4 h-4" />
-                Cargar imágenes
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                hidden
-                onChange={(e) => onFilesSelected(e.target.files)}
-                disabled={formDisabled}
+{/* Imágenes */}
+<div className="space-y-3">
+  <div className="flex items-center justify-between">
+    <label className="block text-sm font-medium text-neutral-800">Imágenes del producto</label>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => !formDisabled && fileInputRef.current?.click()}
+        className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+        disabled={formDisabled}
+      >
+        <Upload className="w-4 h-4" />
+        Cargar imágenes
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => onFilesSelected(e.target.files)}
+        disabled={formDisabled}
+      />
+    </div>
+  </div>
+
+  {(form.imagenes?.length ?? 0) > 0 && (
+    <>
+      <div className="text-xs text-neutral-500">Existentes</div>
+      {/* 👇 vuelve el GRID para que no se estiren */}
+      <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 ${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
+        {form.imagenes.map((src, idx) => {
+          const url = normalizeImageUrl(src);
+          return (
+            <div key={`old-${idx}-${src}`} className="rounded-xl overflow-hidden border border-neutral-200">
+              <ImageUploaded
+                url={url}
+                fileName={filenameFrom(src)}
+                onRemove={() => removeExistingImage(idx)}
               />
             </div>
+          );
+        })}
+      </div>
+    </>
+  )}
+
+  {previews.length > 0 && (
+    <>
+      <div className="text-xs text-neutral-500">Por subir</div>
+      <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 ${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
+        {previews.map((p) => (
+          <div key={p.url} className="rounded-xl overflow-hidden border border-neutral-200">
+            <ImageUploaded
+              url={p.url}
+              fileName={p.file.name}
+              onRemove={() => removeNewImage(p.file)}
+            />
           </div>
-
-          {(form.imagenes?.length ?? 0) > 0 && (
-            <>
-              <div className="text-xs text-neutral-500">Existentes</div>
-              <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 ${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
-                {form.imagenes.map((src, idx) => {
-                  const url = src.startsWith("/") ? src : `/products/${src}`;
-                  return (
-                    <ImageUploaded
-                      key={`old-${idx}-${src}`}
-                      url={url}
-                      fileName={src}
-                      onRemove={() => removeExistingImage(idx)}
-                    />
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {previews.length > 0 && (
-            <>
-              <div className="text-xs text-neutral-500">Por subir</div>
-              <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 ${formDisabled ? "pointer-events-none opacity-60" : ""}`}>
-                {previews.map((p) => (
-                  <ImageUploaded
-                    key={p.url}
-                    url={p.url}
-                    fileName={p.file.name}
-                    onRemove={() => removeNewImage(p.file)}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        ))}
+      </div>
+    </>
+  )}
+</div>
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 pt-2">

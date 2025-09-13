@@ -85,6 +85,7 @@ export const ProductGridItem: React.FC<Props> = ({
             src={displaySrc}
             alt={product.title}
             fill
+            unoptimized
             sizes="(max-width: 768px) 100vw, 33vw"
             className="object-cover transition duration-500 ease-out will-change-transform"
             onMouseEnter={() => hasSecond && setDisplaySrc(resolveSrc(second!))}

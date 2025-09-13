@@ -6,6 +6,7 @@ import clsx from "clsx";
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   isRequired?: boolean;
+  hasError?: boolean; // 👈 nuevo
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -17,6 +18,7 @@ export const Input: React.FC<InputProps> = ({
   placeholder,
   onChange,
   className,
+  hasError = false, // 👈 por defecto false
   ...props
 }) => {
   return (
@@ -36,8 +38,11 @@ export const Input: React.FC<InputProps> = ({
         required={isRequired}
         className={clsx(
           "w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none",
-          "border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400",
+          "focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-400",
           disabled && "bg-neutral-100 cursor-not-allowed opacity-60",
+          hasError
+            ? "border-red-500 focus:border-red-500 focus:ring-red-300" // 👈 borde rojo
+            : "border-neutral-300",
           className
         )}
         {...props}

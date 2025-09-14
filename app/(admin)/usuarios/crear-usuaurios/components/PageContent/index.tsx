@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Title, Button, Input } from "@/components"; // 👈 usamos tu Input y Button
+import { useEffect, useState, startTransition } from "react";
+import { Title, Button, Input, Alert, ConfirmDialog } from "@/components";
 import { UserPlus, Save, Eraser } from "lucide-react";
-import { getPerfilesActivosAction } from "../../actions"; // ajusta la ruta si es necesario
+import { getPerfilesActivosAction } from "../../actions";
+import { signupAction } from "@/app/auth/actions";
+import { useUIStore } from "@/store";
 
-type Perfil = {
+// Tipos
+export type Perfil = {
   id_perfil: number;
   nombre_perfil: string;
   is_active: boolean;
@@ -27,6 +30,14 @@ export function PageContent() {
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
   const [perfilId, setPerfilId] = useState<string>("");
 
+  // UX
+  const [submitting, setSubmitting] = useState(false);
+
+  // ALERT & CONFIRM (tu store)
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
+  const openConfirm = useUIStore((s) => s.openConfirm);
+  const closeConfirm = useUIStore((s) => s.closeConfirm); // por si cambias preventClose:true
+
   // cargar perfiles activos
   useEffect(() => {
     (async () => {
@@ -36,29 +47,50 @@ export function PageContent() {
       } catch (e) {
         console.error("No se pudieron cargar los perfiles activos", e);
         setPerfiles([]);
+        mostrarAlerta("Error", "No se pudieron cargar los perfiles activos.", "danger");
       }
     })();
-  }, []);
+  }, [mostrarAlerta]);
 
   const validateForm = () => {
     const newErrors: Record<string, boolean> = {};
+    const emailRegex = /\S+@\S+\.\S+/;
+
     if (!nombre.trim()) newErrors.nombre = true;
     if (!apellido.trim()) newErrors.apellido = true;
     if (!telefono.trim()) newErrors.telefono = true;
-    if (!correo.trim()) newErrors.correo = true;
-    if (!password.trim()) newErrors.password = true;
-    if (!password2.trim()) newErrors.password2 = true;
-    if (password !== password2) newErrors.password2 = true;
+    if (!correo.trim() || !emailRegex.test(correo)) newErrors.correo = true;
+    if (!password.trim() || password.length < 8) newErrors.password = true;
+    if (!password2.trim() || password !== password2) newErrors.password2 = true;
     if (!perfilId) newErrors.perfilId = true;
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  const hardClear = () => {
+    setNombre("");
+    setApellido("");
+    setTelefono("");
+    setCorreo("");
+    setPassword("");
+    setPassword2("");
+    setPerfilId("");
+    setErrors({});
+  };
+
+  // 🔹 Limpiar SIN confirm
+  const handleClear = () => {
+    hardClear();
+    mostrarAlerta("Formulario limpio", "Se limpiaron todos los campos.", "info");
+  };
+
+  // 🔹 Crear CON confirm
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!validateForm()) {
-      alert("Por favor llena todos los campos correctamente");
+      mostrarAlerta("Campos incompletos", "Por favor completa los campos correctamente.", "warning");
       return;
     }
 
@@ -71,19 +103,54 @@ export function PageContent() {
       id_perfil: Number(perfilId),
     };
 
-    console.log("Crear usuario payload:", payload);
-    // TODO: Conecta con tu acción real (Supabase/API)
-  };
+    openConfirm({
+      titulo: "Confirmar creación",
+      mensaje: `¿Deseas crear el usuario "${nombre} ${apellido}" con el perfil seleccionado?`,
+      confirmText: "Sí, crear",
+      rejectText: "Cancelar",
+      preventClose: false, // si lo pones true, dejamos closeConfirm() abajo
+      onConfirm: async () => {
+        setSubmitting(true);
 
-  const handleClear = () => {
-    setNombre("");
-    setApellido("");
-    setTelefono("");
-    setCorreo("");
-    setPassword("");
-    setPassword2("");
-    setPerfilId("");
-    setErrors({});
+        await new Promise<void>((resolve) =>
+          startTransition(async () => {
+            try {
+              const res = await signupAction(payload);
+
+              if (!res?.ok) {
+                mostrarAlerta(
+                  "No se pudo crear",
+                  res?.message ?? "No se pudo crear el usuario.",
+                  "danger"
+                );
+                setSubmitting(false);
+                return resolve();
+              }
+
+              if (res.status === "pending_confirmation") {
+                mostrarAlerta(
+                  "Registro creado",
+                  "Revisa tu correo para confirmar la cuenta antes de iniciar sesión.",
+                  "info"
+                );
+              } else {
+                mostrarAlerta("Éxito", "Usuario creado correctamente.", "success");
+              }
+
+              hardClear();
+            } catch (err: any) {
+              console.error(err);
+              mostrarAlerta("Error inesperado", err?.message ?? "Ocurrió un error inesperado.", "danger");
+            } finally {
+              setSubmitting(false);
+              // si usas preventClose:true, cerramos manual:
+              closeConfirm();
+              resolve();
+            }
+          })
+        );
+      },
+    });
   };
 
   return (
@@ -98,6 +165,10 @@ export function PageContent() {
           backHref="/usuarios"
         />
       </header>
+
+      {/* UI global */}
+      <Alert />
+      <ConfirmDialog />
 
       {/* Formulario */}
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -169,7 +240,9 @@ export function PageContent() {
               value={perfilId}
               onChange={(e) => setPerfilId(e.target.value)}
               className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10 ${
-                errors.perfilId ? "border-red-500 focus:ring-red-300" : "border-neutral-300"
+                errors.perfilId
+                  ? "border-red-500 focus:ring-red-300"
+                  : "border-neutral-300"
               }`}
               required
             >
@@ -191,6 +264,7 @@ export function PageContent() {
             onClick={handleClear}
             className="w-full sm:w-auto px-6 py-3 min-h-[48px] justify-center"
             icon={<Eraser className="w-5 h-5" />}
+            disabled={submitting}
           >
             Limpiar
           </Button>
@@ -200,8 +274,9 @@ export function PageContent() {
             variant="success"
             className="w-full sm:w-auto px-6 py-3 min-h-[48px] justify-center"
             icon={<Save className="w-5 h-5" />}
+            disabled={submitting}
           >
-            Crear
+            {submitting ? "Creando..." : "Crear"}
           </Button>
         </div>
       </form>

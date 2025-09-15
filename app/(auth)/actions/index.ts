@@ -60,3 +60,21 @@ export async function logout() {
   // manda al login o a la home
   redirect("/auth/login")
 }
+
+export async function resetPassword(formData: FormData) {
+  const supabase = await createClient();
+  const email = (formData.get("email") as string)?.trim();
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const redirectTo = `${siteUrl}/auth/reset`; // debe ser ABSOLUTO y estar permitido en Supabase
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+  if (error) {
+    console.error("Error enviando link de recuperación", error);
+    redirect("/error");
+  }
+
+  revalidatePath("/", "layout");
+  redirect(`/auth/forgot-password/sent?email=${encodeURIComponent(email ?? "")}`);
+}

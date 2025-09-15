@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { createClient } from '@/utils/supabase/server'
+import { redirect } from 'next/navigation';
 
 
 
@@ -95,4 +96,79 @@ export async function signupAction(payload: SignupPayload): Promise<SignupResult
   //    Si tu proyecto tiene confirmación de email activa, considera devolver "pending_confirmation".
   const pending = data.session == null; // sin sesión => probablemente pendiente de confirmar correo
   return { ok: true, status: pending ? "pending_confirmation" : "created" };
+}
+
+
+export async function updatePassword(formData: FormData) {
+  const supabase = await createClient();
+
+  const password = (formData.get("password") as string)?.trim();
+  const confirm  = (formData.get("confirm") as string)?.trim();
+
+  if (!password || !confirm) redirect("/auth/reset?err=required");
+  if (password.length < 8)    redirect("/auth/reset?err=weak");
+  if (password !== confirm)   redirect("/auth/reset?err=nomatch");
+
+  // ✅ Aquí ya deberías tener recovery session gracias a exchangeCodeForSession en la page
+  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !user) {
+    redirect("/auth/login?err=recovery-session");
+  }
+
+  const { data, error } = await supabase.auth.updateUser({ password });
+  console.log("updateUser data:", data);
+
+  if (error) {
+    console.error("updateUser error:", error);
+    redirect("/error");
+  }
+
+  // Final feliz
+  revalidatePath("/", "layout");
+  redirect("/auth/reset/complete"); // tu página de “contraseña modificada”
+}
+
+
+export async function exchangeRecoveryCode(formData: FormData) {
+  const code = (formData.get("code") as string | undefined)?.trim();
+  if (!code) redirect("/auth/login?err=missing-code");
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+  if (error) {
+    console.error("[exchangeRecoveryCode] error:", error);
+    redirect("/auth/login?err=invalid-code");
+  }
+
+  // ✅ Cookies seteadas correctamente (permitido en Server Action)
+  // Vuelve a /auth/reset SIN el code para mostrar tu formulario
+  redirect("/auth/reset");
+}
+
+
+export async function sendResetLinkAction(userId: string): Promise<{ ok: boolean; message?: string }> {
+  const supabase = await createClient();
+
+  // 1) Buscar correo del usuario en tu tabla de perfiles/usuarios
+  const { data: rec, error: qErr } = await supabase
+    .from("tbl_usuarios")
+    .select("email")
+    .eq("id", userId)
+    .single();
+
+  if (qErr || !rec?.email) {
+    return { ok: false, message: "No se encontró el correo del usuario." };
+  }
+
+  // 2) Enviar link de recuperación
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const redirectTo = `${siteUrl}/auth/reset`; // asegúralo en Supabase → Auth → Redirect URLs
+
+  const { error } = await supabase.auth.resetPasswordForEmail(rec.email, { redirectTo });
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  return { ok: true };
 }

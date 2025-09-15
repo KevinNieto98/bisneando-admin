@@ -80,11 +80,6 @@ export function PageContent() {
             </Link>
           </div>
         </form>
-
-        <p className="text-sm text-gray-600 text-center mt-6">
-          ¿No tienes cuenta?{" "}
-          <Link href="/auth/register" className="text-yellow-600 font-semibold hover:underline">Regístrate</Link>
-        </p>
       </div>
     </div>
   );

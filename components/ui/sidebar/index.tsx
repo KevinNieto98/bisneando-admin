@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import {
@@ -9,51 +9,55 @@ import {
   IoPersonCircleOutline,
 } from 'react-icons/io5';
 import { useUIStore } from '@/store';
+import { logout } from '@/app/(auth)/actions';
+import { Button } from '../button';
 
 type User = {
   name: string | null;
   avatarUrl?: string | null;
 };
 
-export const Sidebar = () => {
+type SidebarProps = {
+  user?: {
+    name?: string | null;
+    avatarUrl?: string | null;
+  };
+};
+
+export const Sidebar = ({ user: userProp }: SidebarProps) => {
   const isSideMenuOpen = useUIStore((state) => state.isSideMenuOpen);
   const closeMenu = useUIStore((state) => state.closeSideMenu);
+  const [isPending, startTransition] = useTransition();
 
-  const [user, setUser] = useState<User>({ name: null, avatarUrl: null });
+  const [user, setUser] = useState<User>({
+    name: userProp?.name ?? null,
+    avatarUrl: userProp?.avatarUrl ?? null,
+  });
 
   useEffect(() => {
+    if (userProp?.name || userProp?.avatarUrl) return;
     if (typeof window === 'undefined') return;
     const name = localStorage.getItem('userName');
     const avatarUrl = localStorage.getItem('avatarUrl');
     setUser({ name, avatarUrl });
-  }, []);
+  }, [userProp?.name, userProp?.avatarUrl]);
 
-  // Cerrar con tecla ESC
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isSideMenuOpen) closeMenu();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isSideMenuOpen, closeMenu]);
-
-  const handleLogout = () => {
-    if (typeof window !== 'undefined') {
+  // ya no llamamos a supabase desde el cliente; usamos el Server Action
+  const handlePreLogout = () => {
+    // Limpieza opcional del storage propio de tu app
+    try {
       localStorage.removeItem('userName');
       localStorage.removeItem('avatarUrl');
-    }
+    } catch {}
     closeMenu();
-    window.location.href = '/';
   };
 
   return (
     <div>
-      {/* Background black */}
       {isSideMenuOpen && (
         <div className="fixed left-0 top-0 z-10 h-screen w-screen bg-black/30" />
       )}
 
-      {/* Blur overlay (cierra al click) */}
       {isSideMenuOpen && (
         <button
           onClick={closeMenu}
@@ -62,7 +66,6 @@ export const Sidebar = () => {
         />
       )}
 
-      {/* Sidemenu */}
       <nav
         role="dialog"
         aria-modal="true"
@@ -72,7 +75,6 @@ export const Sidebar = () => {
           { 'translate-x-full': !isSideMenuOpen }
         )}
       >
-        {/* Close */}
         <button
           onClick={closeMenu}
           aria-label="Cerrar menú"
@@ -114,17 +116,28 @@ export const Sidebar = () => {
 
         {/* Menú */}
         <div className="mt-4 space-y-2">
-
-
           <div className="my-4 h-px w-full bg-zinc-200" />
 
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl p-3 text-red-600 ring-1 ring-red-100 transition hover:bg-red-50"
+          {/* === Logout con Server Action === */}
+          <form
+            action={async () => {
+              handlePreLogout();
+              // usa startTransition para feedback mientras ejecuta el action
+              startTransition(async () => {
+                await logout(); // hará redirect en el server action
+              });
+            }}
           >
-            <IoLogOutOutline size={24} />
-            <span className="text-base font-semibold">Cerrar sesión</span>
-          </button>
+            <Button
+              type="submit"
+              variant="danger"
+              icon={<IoLogOutOutline size={20} />}
+              disabled={isPending}
+              className="w-full"
+            >
+              {isPending ? 'Cerrando…' : 'Cerrar sesión'}
+            </Button>
+          </form>
         </div>
       </nav>
     </div>

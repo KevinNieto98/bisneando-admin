@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, startTransition } from "react";
+import { useEffect, useState, startTransition } from "react";
 import { Title, Button, Input, Alert, ConfirmDialog } from "@/components";
 import { UserPlus, Save, Eraser, Mail } from "lucide-react";
-import { getPerfilesActivosAction } from "../../actions";
-import { sendResetLinkAction, signupAction } from "@/app/auth/actions";
+import {  sendResetLinkAction, signupAction } from "@/app/auth/actions";
 import { useUIStore } from "@/store";
-import { useParams } from "next/navigation";
+import { getPerfilesActivosAction, getUsuarioByIdAction } from "../../../actions";
 
 // Tipos
 export type Perfil = {
@@ -15,10 +14,16 @@ export type Perfil = {
   is_active: boolean;
 };
 
-export function PageContent() {
-  const params = useParams<{ id?: string }>();
-  const isEdit = Boolean(params?.id); // si hay /[id] estamos en edición
-  const userId = params?.id;
+export type PageContentProps = {
+  mode?: "create" | "edit";
+  userId?: string;
+};
+
+export function PageContent({
+  mode = "create",
+  userId,
+}: PageContentProps) {
+  const isEdit = mode === "edit";
 
   // estado del formulario
   const [nombre, setNombre] = useState("");
@@ -37,6 +42,7 @@ export function PageContent() {
 
   // UX
   const [submitting, setSubmitting] = useState(false);
+  const [loadingUser, setLoadingUser] = useState(false); // 👈 NUEVO
 
   // ALERT & CONFIRM (tu store)
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
@@ -57,8 +63,32 @@ export function PageContent() {
     })();
   }, [mostrarAlerta]);
 
-  // TODO opcional: si estás en edición, precargar datos del usuario (nombre, correo, etc.)
-  // useEffect(() => { if (isEdit) { fetchUsuario(userId).then(setDatos) } }, [isEdit, userId]);
+  // 👇 Precargar datos del usuario en modo edición
+  useEffect(() => {
+    if (!isEdit || !userId) return;
+
+    setLoadingUser(true);
+    (async () => {
+      try {
+        const user = await getUsuarioByIdAction(userId);
+        if (!user) {
+          mostrarAlerta("No encontrado", "No se encontró el usuario indicado.", "warning");
+          return;
+        }
+        // Mapear al formulario
+        setNombre(user.nombre ?? "");
+        setApellido(user.apellido ?? "");
+        setTelefono(user.phone ?? "");
+        setCorreo(user.email ?? "");
+        setPerfilId(String(user.id_perfil ?? ""));
+      } catch (err: any) {
+        console.error(err);
+        mostrarAlerta("Error", err?.message ?? "No se pudo cargar el usuario.", "danger");
+      } finally {
+        setLoadingUser(false);
+      }
+    })();
+  }, [isEdit, userId, mostrarAlerta]);
 
   const validateForm = () => {
     const newErrors: Record<string, boolean> = {};
@@ -97,7 +127,7 @@ export function PageContent() {
     mostrarAlerta("Formulario limpio", "Se limpiaron todos los campos.", "info");
   };
 
-  // 🔹 Crear CON confirm (si estás en edición solo muestro alerta guía)
+  // Crear o Editar
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -106,12 +136,49 @@ export function PageContent() {
       return;
     }
 
-    if (isEdit) {
-      // Aquí normalmente llamarías a tu acción de actualización (PUT) del usuario.
-      // e.g. await updateUsuarioAction({ id: userId, nombre, ... })
-      mostrarAlerta("Pendiente", "Implementa la acción para actualizar el usuario.", "info");
-      return;
-    }
+if (isEdit) {
+  openConfirm({
+    titulo: "Confirmar actualización",
+    mensaje: `¿Deseas guardar los cambios para "${nombre} ${apellido}"?`,
+    confirmText: "Sí, guardar",
+    rejectText: "Cancelar",
+    preventClose: false,
+    onConfirm: async () => {
+      setSubmitting(true);
+
+      await new Promise<void>((resolve) =>
+        startTransition(async () => {
+          try {
+            // Construimos el FormData que espera la server action
+            const fd = new FormData();
+            fd.append("email", correo);
+            fd.append("nombre", nombre);
+            fd.append("apellido", apellido);
+            fd.append("phone", telefono);
+            fd.append("id_perfil", String(perfilId)); // la action lo castea a número si aplica
+
+            // Llamada a la server action: esta hace update en auth.users y en tbl_usuarios
+      //      await updateAccount(fd);
+
+            // Si la action hace redirect, no se ejecutará lo de abajo (navegará).
+            // Si no redirige, mostramos feedback local:
+            mostrarAlerta("Éxito", "Usuario actualizado correctamente.", "success");
+          } catch (err: any) {
+            console.error(err);
+            // Si la action hace redirect con error, Next corta el flujo; si no, mostramos:
+            mostrarAlerta("Error", err?.message ?? "No se pudo actualizar el usuario.", "danger");
+          } finally {
+            setSubmitting(false);
+            closeConfirm();
+            resolve();
+          }
+        })
+      );
+    },
+  });
+
+  return;
+}
 
     const payload = {
       nombre,
@@ -146,7 +213,7 @@ export function PageContent() {
                 return resolve();
               }
 
-              if (res.status === "pending_confirmation") {
+              if ((res as any).status === "pending_confirmation") {
                 mostrarAlerta(
                   "Registro creado",
                   "Revisa tu correo para confirmar la cuenta antes de iniciar sesión.",
@@ -171,7 +238,7 @@ export function PageContent() {
     });
   };
 
-  // 🔹 Restablecer contraseña (solo en edición)
+  // Restablecer contraseña (solo en edición)
   const handleResetPassword = async () => {
     if (!isEdit || !userId) return;
 
@@ -185,7 +252,7 @@ export function PageContent() {
           "success"
         );
       } else {
-        mostrarAlerta("Error", res.message ?? "No se pudo enviar el enlace.", "danger");
+        mostrarAlerta("Error", (res as any).message ?? "No se pudo enviar el enlace.", "danger");
       }
     } catch (e: any) {
       console.error(e);
@@ -201,7 +268,7 @@ export function PageContent() {
       <header className="flex items-end justify-between w-full gap-4">
         <Title
           title={isEdit ? "Editar Usuario" : "Crear Usuarios"}
-          subtitle="Administra los usuarios de la plataforma"
+          subtitle={isEdit ? "Actualiza los datos del usuario" : "Registra un nuevo usuario"}
           showBackButton
           icon={<UserPlus />}
           backHref="/usuarios"
@@ -214,7 +281,7 @@ export function PageContent() {
 
       {/* Formulario */}
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 opacity-100">
           <Input
             label="Nombre"
             value={nombre}
@@ -222,6 +289,7 @@ export function PageContent() {
             placeholder="Tu nombre"
             isRequired
             hasError={errors.nombre}
+            disabled={loadingUser && isEdit}
           />
 
           <Input
@@ -231,6 +299,7 @@ export function PageContent() {
             placeholder="Tu apellido"
             isRequired
             hasError={errors.apellido}
+            disabled={loadingUser && isEdit}
           />
 
           <Input
@@ -241,6 +310,7 @@ export function PageContent() {
             type="tel"
             isRequired
             hasError={errors.telefono}
+            disabled={loadingUser && isEdit}
           />
 
           <Input
@@ -251,9 +321,10 @@ export function PageContent() {
             type="email"
             isRequired
             hasError={errors.correo}
+            disabled={loadingUser && isEdit}
           />
 
-          {/* 👇 Contraseñas SOLO en crear */}
+          {/* Contraseñas SOLO en crear */}
           {!isEdit && (
             <>
               <Input
@@ -278,8 +349,6 @@ export function PageContent() {
             </>
           )}
 
-
-
           {/* Perfil */}
           <div>
             <label className="block text-sm font-medium text-neutral-700">
@@ -292,6 +361,7 @@ export function PageContent() {
                 errors.perfilId ? "border-red-500 focus:ring-red-300" : "border-neutral-300"
               }`}
               required
+              disabled={loadingUser && isEdit}
             >
               <option value="">Selecciona un perfil…</option>
               {perfiles.map((p) => (
@@ -303,24 +373,22 @@ export function PageContent() {
           </div>
         </div>
 
-                            {/* Botón de restablecer SOLO en edición */}
-          {isEdit && (
-            <Button
-              type="button"
-              variant="warning"
-              icon={<Mail className="w-5 h-5" />}
-              onClick={handleResetPassword}
-              className="w-full sm:w-auto px-6 py-2 min-h-[48px] justify-center"
-              disabled={submitting || !userId}
-            >
-              Restablecer contraseña
-            </Button>
-          )}
-
+        {/* Botón de restablecer SOLO en edición */}
+        {isEdit && (
+          <Button
+            type="button"
+            variant="warning"
+            icon={<Mail className="w-5 h-5" />}
+            onClick={handleResetPassword}
+            className="w-full sm:w-auto px-6 py-2 min-h-[48px] justify-center"
+            disabled={submitting || !userId || loadingUser}
+          >
+            Restablecer contraseña
+          </Button>
+        )}
 
         {/* Acciones */}
         <div className="flex flex-col sm:flex-row gap-3 justify-end">
-
           <Button
             type="button"
             variant="white"
@@ -337,7 +405,7 @@ export function PageContent() {
             variant="success"
             className="w-full sm:w-auto px-6 py-3 min-h-[48px] justify-center"
             icon={<Save className="w-5 h-5" />}
-            disabled={submitting}
+            disabled={submitting || (isEdit && loadingUser)}
           >
             {isEdit ? (submitting ? "Guardando..." : "Guardar") : (submitting ? "Creando..." : "Crear")}
           </Button>

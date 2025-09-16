@@ -2,7 +2,8 @@
 import { Button, Icono } from "@/components";
 import React from "react";
 
-export type UserType = "" | "Administrador" | "Prueba" | "Cliente" | "Bodega";
+// Ahora permite strings dinámicos desde DB (nombre_perfil)
+export type UserType = "" | string;
 export type UserStatus = "" | "Activo" | "Inactivo";
 
 type Props = {
@@ -24,9 +25,12 @@ type Props = {
   shownCount: number;
   totalCount: number;
   className?: string;
+
+  // 🔽 Nuevo: perfiles activos (para poblar el select)
+  profiles: Array<{ id: number; name: string }>;
 };
 
-export  function HeaderTable({
+export function HeaderTable({
   query,
   type,
   status,
@@ -38,9 +42,17 @@ export  function HeaderTable({
   shownCount,
   totalCount,
   className,
+  profiles,
 }: Props) {
   return (
-    <div className={["flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3", className].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {/* 🔎 Buscador */}
       <div className="relative w-full sm:max-w-md">
         <input
@@ -67,7 +79,7 @@ export  function HeaderTable({
           {shownCount} de {totalCount} usuarios
         </div>
 
-        {/* Tipo de usuario */}
+        {/* Tipo de usuario (dinámico desde perfiles activos) */}
         <select
           value={type}
           onChange={(e) => onTypeChange(e.target.value as UserType)}
@@ -75,10 +87,11 @@ export  function HeaderTable({
           aria-label="Filtrar por tipo de usuario"
         >
           <option value="">Tipo de Usuario</option>
-          <option value="Administrador">Administrador</option>
-          <option value="Prueba">Prueba</option>
-          <option value="Cliente">Cliente</option>
-          <option value="Bodega">Bodega</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.name}>
+              {p.name}
+            </option>
+          ))}
         </select>
 
         {/* Estado */}

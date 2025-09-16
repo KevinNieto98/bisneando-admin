@@ -2,10 +2,11 @@
 
 import { useEffect, useState, startTransition } from "react";
 import { Title, Button, Input, Alert, ConfirmDialog } from "@/components";
-import { UserPlus, Save, Eraser, Mail } from "lucide-react";
-import {  sendResetLinkAction, signupAction } from "@/app/auth/actions";
+import { UserPlus, Save, Eraser, Mail, Ban } from "lucide-react";
+import { sendResetLinkAction, signupAction } from "@/app/auth/actions";
 import { useUIStore } from "@/store";
 import { getPerfilesActivosAction, getUsuarioByIdAction } from "../../../actions";
+import { putUsuarioAction, updateEmailNombreAction } from "../../actions";
 
 // Tipos
 export type Perfil = {
@@ -136,49 +137,57 @@ export function PageContent({
       return;
     }
 
-if (isEdit) {
-  openConfirm({
-    titulo: "Confirmar actualización",
-    mensaje: `¿Deseas guardar los cambios para "${nombre} ${apellido}"?`,
-    confirmText: "Sí, guardar",
-    rejectText: "Cancelar",
-    preventClose: false,
-    onConfirm: async () => {
-      setSubmitting(true);
+    if (isEdit) {
+      openConfirm({
+        titulo: "Confirmar actualización",
+        mensaje: `¿Deseas guardar los cambios para "${nombre} ${apellido}"?`,
+        confirmText: "Sí, guardar",
+        rejectText: "Cancelar",
+        preventClose: false,
+        onConfirm: async () => {
+          setSubmitting(true);
 
-      await new Promise<void>((resolve) =>
-        startTransition(async () => {
-          try {
-            // Construimos el FormData que espera la server action
-            const fd = new FormData();
-            fd.append("email", correo);
-            fd.append("nombre", nombre);
-            fd.append("apellido", apellido);
-            fd.append("phone", telefono);
-            fd.append("id_perfil", String(perfilId)); // la action lo castea a número si aplica
+          await new Promise<void>((resolve) =>
+            startTransition(async () => {
+              try {
+                // Construimos el FormData que espera la server action
+                const fd = new FormData();
+                fd.append("email", correo);
+                fd.append("nombre", nombre);
+                fd.append("apellido", apellido);
+                fd.append("phone", telefono);
+                fd.append("id_perfil", String(perfilId)); // la action lo castea a número si aplica
 
-            // Llamada a la server action: esta hace update en auth.users y en tbl_usuarios
-      //      await updateAccount(fd);
+                // Llamada a la server action: esta hace update en auth.users y en tbl_usuarios
+                await putUsuarioAction(
+                  userId!,           // id (uuid)
+                  nombre,            // nombre
+                  apellido,          // apellido
+                  telefono,          // phone (string)
+                  Number(perfilId),  // id_perfil (number)
+                );
 
-            // Si la action hace redirect, no se ejecutará lo de abajo (navegará).
-            // Si no redirige, mostramos feedback local:
-            mostrarAlerta("Éxito", "Usuario actualizado correctamente.", "success");
-          } catch (err: any) {
-            console.error(err);
-            // Si la action hace redirect con error, Next corta el flujo; si no, mostramos:
-            mostrarAlerta("Error", err?.message ?? "No se pudo actualizar el usuario.", "danger");
-          } finally {
-            setSubmitting(false);
-            closeConfirm();
-            resolve();
-          }
-        })
-      );
-    },
-  });
 
-  return;
-}
+
+                // Si la action hace redirect, no se ejecutará lo de abajo (navegará).
+                // Si no redirige, mostramos feedback local:
+                mostrarAlerta("Éxito", "Usuario actualizado correctamente.", "success");
+              } catch (err: any) {
+                console.error(err);
+                // Si la action hace redirect con error, Next corta el flujo; si no, mostramos:
+                mostrarAlerta("Error", err?.message ?? "No se pudo actualizar el usuario.", "danger");
+              } finally {
+                setSubmitting(false);
+                closeConfirm();
+                resolve();
+              }
+            })
+          );
+        },
+      });
+
+      return;
+    }
 
     const payload = {
       nombre,
@@ -321,7 +330,7 @@ if (isEdit) {
             type="email"
             isRequired
             hasError={errors.correo}
-            disabled={loadingUser && isEdit}
+            disabled={isEdit || loadingUser}
           />
 
           {/* Contraseñas SOLO en crear */}
@@ -357,9 +366,8 @@ if (isEdit) {
             <select
               value={perfilId}
               onChange={(e) => setPerfilId(e.target.value)}
-              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10 ${
-                errors.perfilId ? "border-red-500 focus:ring-red-300" : "border-neutral-300"
-              }`}
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10 ${errors.perfilId ? "border-red-500 focus:ring-red-300" : "border-neutral-300"
+                }`}
               required
               disabled={loadingUser && isEdit}
             >
@@ -374,18 +382,31 @@ if (isEdit) {
         </div>
 
         {/* Botón de restablecer SOLO en edición */}
-        {isEdit && (
-          <Button
-            type="button"
-            variant="warning"
-            icon={<Mail className="w-5 h-5" />}
-            onClick={handleResetPassword}
-            className="w-full sm:w-auto px-6 py-2 min-h-[48px] justify-center"
-            disabled={submitting || !userId || loadingUser}
-          >
-            Restablecer contraseña
-          </Button>
-        )}
+{isEdit && (
+  <div className="flex flex-col sm:flex-row gap-3">
+    <Button
+      type="button"
+      variant="warning"
+      icon={<Mail className="w-5 h-5" />}
+      onClick={handleResetPassword}
+      className="w-full sm:w-auto px-6 py-2 min-h-[48px] justify-center"
+      disabled={submitting || !userId || loadingUser}
+    >
+      Restablecer contraseña
+    </Button>
+
+    <Button
+      type="button"
+      variant="danger"  // si tu Button no tiene "danger", usa "destructive"
+      icon={<Ban className="w-5 h-5" />}
+      //onClick={handleBlockUser}
+      className="w-full sm:w-auto px-6 py-2 min-h-[48px] justify-center"
+      disabled={submitting || !userId || loadingUser}
+    >
+      Bloquear usuario
+    </Button>
+  </div>
+)}
 
         {/* Acciones */}
         <div className="flex flex-col sm:flex-row gap-3 justify-end">

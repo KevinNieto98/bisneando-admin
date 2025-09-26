@@ -455,3 +455,15 @@ export async function getAllPortadasAction(params?: {
     };
   }
 }
+
+export async function getActivePortadasAction(params?: {
+  offset?: number
+  limit?: number
+  orderBy?: "fecha_creacion" | "id_portada"
+  ascending?: boolean
+}): Promise<GetAllPortadasResult> {
+  return getAllPortadasAction({
+    ...params,
+    onlyActive: true, // siempre filtra solo activas
+  })
+}

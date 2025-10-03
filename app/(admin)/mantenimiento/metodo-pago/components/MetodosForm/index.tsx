@@ -2,15 +2,16 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Switch } from '@/components'
+import { Switch, IconPicker } from '@/components'
 
-interface Metodo {
+export interface Metodo {
   id_metodo: number
   nombre_metodo: string
   is_active: boolean
+  icono?: string 
 }
 
-interface MetodoFormProps {
+export interface MetodoFormProps {
   value: Metodo
   onChange: (next: Metodo) => void
   onSubmit: () => void
@@ -18,7 +19,7 @@ interface MetodoFormProps {
   autoFocus?: boolean
   minLenNombre?: number
   onReady?: () => void
-  disabled?: boolean           // ← NUEVO
+  disabled?: boolean
 }
 
 export const MetodoForm: React.FC<MetodoFormProps> = ({
@@ -29,7 +30,7 @@ export const MetodoForm: React.FC<MetodoFormProps> = ({
   autoFocus = true,
   minLenNombre = 2,
   onReady,
-  disabled = false,            // ← NUEVO
+  disabled = false,
 }) => {
   const [touched, setTouched] = useState(false)
   const nombreValido = (value.nombre_metodo ?? '').trim().length >= minLenNombre
@@ -44,15 +45,16 @@ export const MetodoForm: React.FC<MetodoFormProps> = ({
       id={formId}
       onSubmit={(e) => {
         e.preventDefault()
-        if (disabled) return          // ← Evita submit doble
+        if (disabled) return
         setTouched(true)
         if (!nombreValido) return
         onSubmit()
       }}
       className="space-y-4"
       noValidate
-      aria-busy={disabled}            // ← Accesibilidad
+      aria-busy={disabled}
     >
+      {/* Nombre */}
       <div className="space-y-1.5">
         <label htmlFor="nombre_metodo" className="text-sm font-medium text-neutral-700">
           Nombre del Método
@@ -67,7 +69,7 @@ export const MetodoForm: React.FC<MetodoFormProps> = ({
           aria-invalid={touched && !nombreValido}
           aria-describedby="nombre_metodo_help"
           autoComplete="off"
-          disabled={disabled}         // ← BLOQUEA INPUT
+          disabled={disabled}
         />
         {touched && !nombreValido && (
           <p id="nombre_metodo_help" className="text-xs text-red-600">
@@ -76,16 +78,37 @@ export const MetodoForm: React.FC<MetodoFormProps> = ({
         )}
       </div>
 
+      {/* Estado */}
       <div className="flex items-center gap-3">
         <Switch
           checked={value.is_active}
-          onChange={(next: boolean) => !disabled && onChange({ ...value, is_active: next })} // ← BLOQUEO
+          onChange={(next: boolean) => !disabled && onChange({ ...value, is_active: next })}
           ariaLabel="Cambiar disponibilidad"
-          disabled={disabled as any}   // ← si tu Switch acepta disabled
+          // disabled={disabled as any}  // si tu Switch acepta disabled
         />
         <span className="text-sm font-medium text-neutral-700">
           {value.is_active ? 'Disponible' : 'No disponible'}
         </span>
+      </div>
+
+      {/* Selector de icono */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-neutral-700">Icono</label>
+        <div className="flex items-center gap-3">
+          <IconPicker
+            value={value.icono ?? null}
+            onChange={(name) => !disabled && onChange({ ...value, icono: name })}
+            // disabled={disabled as any} // si tu IconPicker acepta disabled
+          />
+          {value.icono && (
+            <span className="text-xs text-neutral-600">
+              Seleccionado: {value.icono}
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-neutral-500">
+          Devuelve el nombre del icono de lucide-react (ej. "CreditCard").
+        </p>
       </div>
     </form>
   )

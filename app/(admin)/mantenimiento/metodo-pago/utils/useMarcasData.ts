@@ -13,6 +13,7 @@ export function useMetodosData() {
     try {
       const metodos = await getMetodosAction();
       setData(metodos);
+      
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "Error desconocido");
@@ -49,7 +50,7 @@ export function useMetodosData() {
     );
 
     try {
-      await putMetodo(id, current.nombre_metodo, newActive);
+      await putMetodo(id, current.nombre_metodo, newActive, current.icono ?? "CreditCard");
     } catch (e) {
       // Rollback
       setData((prev) =>
@@ -60,12 +61,12 @@ export function useMetodosData() {
   };
 
   const createMetodo = async (m: Omit<Metodo, "id_metodo">) => {
-    await postMetodosAction(m.nombre_metodo, m.is_active);
+    await postMetodosAction(m.nombre_metodo, m.is_active, m.icono ?? "CreditCard");
     await fetchData();
   };
 
   const updateMetodo = async (m: Metodo) => {
-    await putMetodo(m.id_metodo, m.nombre_metodo, m.is_active);
+    await putMetodo(m.id_metodo, m.nombre_metodo, m.is_active, m.icono ?? "CreditCard");
     await fetchData();
   };
 

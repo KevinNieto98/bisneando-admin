@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, CreditCard, Search } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, CreditCard, Search } from "lucide-react";
 import {
   Alert,
   Button,
@@ -12,10 +12,11 @@ import {
   Title,
   Pagination,
   ModalSkeleton,
-} from '@/components';
+  Icono,
+} from "@/components";
 
-import { useUIStore } from '@/store';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useUIStore } from "@/store";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import {
   Column,
@@ -25,11 +26,11 @@ import {
   useFilteredData,
   useClientPagination,
   useMetodosData,
-} from '../../utils';
-import { MetodoForm } from '../MetodosForm';
-import { FooterModal } from '../FooterModal';
+} from "../../utils";
+import { MetodoForm } from "../MetodosForm";
+import { FooterModal } from "../FooterModal";
 
-export  function PageContent() {
+export function PageContent() {
   // UI store
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
   const openConfirm = useUIStore((s) => s.openConfirm);
@@ -50,15 +51,23 @@ export  function PageContent() {
   const { data, loading, error, toggleDisponible, createMetodo, updateMetodo } =
     useMetodosData();
 
+  console.log("Metodos data:", data);
+  
+  const ensureIcon = (icono?: string | null) => {
+  if (!icono) return "CreditCard"; // 👈 fallback
+  // normalizar (primera letra mayúscula)
+  return icono.charAt(0).toUpperCase() + icono.slice(1);
+};
+
   // Búsqueda
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const filtered = useFilteredData(data, query);
 
   // Paginación
   const PAGE_SIZE = 10;
   const { currentPage, setCurrentPage, totalPages, pageItems: paginatedData } =
     useClientPagination(filtered, PAGE_SIZE);
-
+  console.log("Paginated data:", paginatedData);
   // 🔁 Cada vez que se abre el modal, mostramos skeleton de entrada
   useEffect(() => {
     if (isModalOpen) {
@@ -70,19 +79,17 @@ export  function PageContent() {
 
   // Handlers
   const handleCreate = () => {
-    // 1) Abrir el modal vacío (editing=null) para que se vea el skeleton YA
     openModal();
     setModalLoading(true);
     setEditing(null);
 
-    // 2) En el siguiente tick, setear el editing real para montar el form
     setTimeout(() => {
       setEditing({
         id_metodo: nextId(data),
-        nombre_metodo: '',
+        nombre_metodo: "",
         is_active: true,
+        icono: "CreditCard", // 👈 valor por defecto
       });
-      // el onReady del form apagará modalLoading
     }, 0);
   };
 
@@ -92,7 +99,6 @@ export  function PageContent() {
     setEditing(null);
     setTimeout(() => {
       setEditing({ ...m });
-      // el onReady del form apagará modalLoading
     }, 0);
   };
 
@@ -100,8 +106,8 @@ export  function PageContent() {
     try {
       await toggleDisponible(id, next);
     } catch (e) {
-      console.error('Error al actualizar disponibilidad:', e);
-      mostrarAlerta('Error', 'No se pudo actualizar la disponibilidad.', 'danger');
+      console.error("Error al actualizar disponibilidad:", e);
+      mostrarAlerta("Error", "No se pudo actualizar la disponibilidad.", "danger");
     }
   };
 
@@ -111,14 +117,13 @@ export  function PageContent() {
     const exists = data.some((m) => m.id_metodo === editing.id_metodo);
 
     openConfirm({
-      titulo: exists ? 'Confirmar actualización' : 'Confirmar creación',
+      titulo: exists ? "Confirmar actualización" : "Confirmar creación",
       mensaje: exists
         ? `¿Deseas actualizar el método \"${editing.nombre_metodo}\"?`
         : `¿Deseas crear el método \"${editing.nombre_metodo}\"?`,
-      confirmText: exists ? 'Actualizar' : 'Crear',
-      rejectText: 'Cancelar',
+      confirmText: exists ? "Actualizar" : "Crear",
+      rejectText: "Cancelar",
       onConfirm: async () => {
-        // Bloquea la UI durante el guardado
         setSubmitting(true);
         try {
           await doSave({ exists });
@@ -137,6 +142,7 @@ export  function PageContent() {
         await createMetodo({
           nombre_metodo: editing!.nombre_metodo,
           is_active: editing!.is_active,
+          icono: editing!.icono ?? "CreditCard",
         });
       }
 
@@ -144,17 +150,17 @@ export  function PageContent() {
       setEditing(null);
 
       mostrarAlerta(
-        '¡Guardado!',
+        "¡Guardado!",
         exists
-          ? 'El método de pago se actualizó correctamente.'
-          : 'El método de pago se creó correctamente.',
-        'success'
+          ? "El método de pago se actualizó correctamente."
+          : "El método de pago se creó correctamente.",
+        "success"
       );
 
       setCurrentPage(1);
     } catch (e) {
-      console.error('Error al guardar método de pago:', e);
-      mostrarAlerta('Error', 'No se pudo guardar el método. Intenta de nuevo.', 'danger');
+      console.error("Error al guardar método de pago:", e);
+      mostrarAlerta("Error", "No se pudo guardar el método. Intenta de nuevo.", "danger");
     }
   };
 
@@ -162,23 +168,35 @@ export  function PageContent() {
   const columns: Column<Metodo>[] = useMemo(
     () => [
       {
-        header: 'ID',
-        className: 'w-16 text-center',
-        align: 'center',
+        header: "ID",
+        className: "w-16 text-center",
+        align: "center",
         cell: (row) => row.id_metodo,
       },
       {
-        header: 'Método',
-        className: 'min-w-[200px] w-full text-left',
-        align: 'left',
+        header: "Icono",
+        className: "w-24 text-center",
+        align: "center",
+        cell: (row) => (
+          <div className="flex items-center justify-center gap-2">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-100">
+             <Icono name={ensureIcon(row.icono)} size={16} />
+            </span>
+          </div>
+        ),
+      },
+      {
+        header: "Método",
+        className: "min-w-[200px] w-full text-left",
+        align: "left",
         cell: (row) => (
           <span className="font-medium text-neutral-900">{row.nombre_metodo}</span>
         ),
       },
       {
-        header: 'Disponible',
-        className: 'w-40 text-center',
-        align: 'center',
+        header: "Disponible",
+        className: "w-40 text-center",
+        align: "center",
         cell: (row) => (
           <div className="flex items-center justify-center gap-2">
             <Switch
@@ -187,7 +205,7 @@ export  function PageContent() {
               ariaLabel={`Cambiar disponibilidad de ${row.nombre_metodo}`}
             />
             <span className="text-xs font-medium text-neutral-700">
-              {row.is_active ? 'Sí' : 'No'}
+              {row.is_active ? "Sí" : "No"}
             </span>
           </div>
         ),
@@ -195,7 +213,8 @@ export  function PageContent() {
     ],
     [handleToggleDisponible]
   );
-
+  console.log("Columns:", columns);
+  
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">
       {/* Header */}
@@ -206,6 +225,9 @@ export  function PageContent() {
         showBackButton
         backHref="/mantenimiento"
         title="Métodos de pago"
+        icon={<Icono 
+          name="CreditCard"
+          className="w-6 h-6" />}
         subtitle="Gestiona los medios de cobro disponibles"
       />
 
@@ -224,7 +246,11 @@ export  function PageContent() {
           />
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleCreate} icon={<Plus className="w-4 h-4" />} variant="warning">
+          <Button
+            onClick={handleCreate}
+            icon={<Plus className="w-4 h-4" />}
+            variant="warning"
+          >
             Nuevo método
           </Button>
         </div>
@@ -234,7 +260,7 @@ export  function PageContent() {
       {loading ? (
         <TableSkeleton rows={10} showActions />
       ) : (
-        <div className={submitting ? 'pointer-events-none opacity-60' : ''}>
+        <div className={submitting ? "pointer-events-none opacity-60" : ""}>
           <Table
             data={paginatedData}
             columns={columns}
@@ -257,7 +283,11 @@ export  function PageContent() {
 
       {/* Paginación */}
       <div className="mt-2 flex justify-center">
-        <Pagination totalPages={totalPages} currentPage={currentPage} onPageChange={setCurrentPage} />
+        <Pagination
+          totalPages={totalPages}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+        />
       </div>
 
       {/* Modal */}
@@ -268,15 +298,17 @@ export  function PageContent() {
           closeModal();
           setEditing(null);
         }}
-        title={editing ? 'Editar método de pago' : 'Nuevo método de pago'}
+        title={editing ? "Editar método de pago" : "Nuevo método de pago"}
         icon={<CreditCard className="w-5 h-5" />}
         content={
-          editing === null ? (
-            null
-          ) : (
+          editing === null ? null : (
             <>
               {(modalLoading || submitting) && <ModalSkeleton />}
-              <div className={(modalLoading || submitting) ? 'pointer-events-none opacity-60' : ''}>
+              <div
+                className={
+                  modalLoading || submitting ? "pointer-events-none opacity-60" : ""
+                }
+              >
                 <MetodoForm
                   value={editing}
                   onChange={setEditing}

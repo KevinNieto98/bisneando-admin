@@ -10,4 +10,5 @@ export interface Metodo {
   id_metodo: number;
   nombre_metodo: string;
   is_active: boolean;
+  icono?: string;
 }

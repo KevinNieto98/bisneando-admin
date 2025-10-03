@@ -30,10 +30,10 @@ export async function getMetodosAction() {
 }
 
 // acciones/supabase/Metodos.ts
-export async function postMetodosAction(name: string, is_active: boolean) {
+export async function postMetodosAction(name: string, is_active: boolean, icono: string) {
   const { data, error } = await supabase
     .from('tbl_metodos_pago')
-    .insert([{ nombre_metodo: name, is_active }])
+    .insert([{ nombre_metodo: name, is_active, icono }])
     .select()
     .single(); // <- nos quedamos con 1 fila
 
@@ -41,10 +41,10 @@ export async function postMetodosAction(name: string, is_active: boolean) {
   return data as { id_metodo: number; nombre_metodo: string; is_active: boolean };
 }
 
-export async function putMetodo(id: number, name: string, is_active: boolean) {
+export async function putMetodo(id: number, name: string, is_active: boolean, icono: string) {
   const { data, error } = await supabase
     .from('tbl_metodos_pago') // <- corregido
-    .update({ nombre_metodo: name, is_active })
+    .update({ nombre_metodo: name, is_active, icono })
     .eq('id_metodo', Number(id))
     .select()
     .single(); // <- devuelve una sola fila

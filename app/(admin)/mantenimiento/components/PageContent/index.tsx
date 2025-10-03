@@ -45,6 +45,7 @@ export  function PageContent() {
             title="Mantenimiento"
             subtitle="Configuraciones del sistema"
             showBackButton
+            icon={<Wrench className="h-5 w-5" />}
             backHref="/"
             // icon={<Wrench className="h-5 w-5" />} // opcional si tu Title soporta icon
           />

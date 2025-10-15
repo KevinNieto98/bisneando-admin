@@ -10,6 +10,8 @@ import { useUIStore } from "@/store";
 import { Alert } from "@/components";
 
 export function PageContent() {
+  // useActionState invoca el server action con (prevState, formData)
+  // El action debe validar que platform === 'WEB' => perfil requerido = 2
   const [state, formAction, pending] = useActionState<LoginResult | null, FormData>(login, null);
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
 
@@ -18,7 +20,6 @@ export function PageContent() {
 
     if (!state.success) {
       if (state.code === "invalid_credentials") {
-        // ⬅️ ORDEN CORRECTO: titulo, mensaje, tipo
         mostrarAlerta("Error", "Correo o contraseña incorrectos.", "danger");
       } else {
         mostrarAlerta("Error", state.message ?? "Ocurrió un error.", "danger");
@@ -44,6 +45,9 @@ export function PageContent() {
         <h2 className="text-3xl font-bold text-gray-800 text-center mb-6">Iniciar Sesión</h2>
 
         <form className="space-y-4" action={formAction}>
+          {/* Campo oculto para que el server action aplique perfil=2 */}
+          <input type="hidden" name="platform" value="WEB" />
+
           <div>
             <label className="block text-gray-700 font-medium">Correo</label>
             <input

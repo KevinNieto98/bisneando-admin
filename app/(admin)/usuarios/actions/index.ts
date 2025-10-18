@@ -102,3 +102,89 @@ export async function getUsuarioByIdAction(id: string): Promise<Usuario | null> 
   // Como usamos eq.id debería venir un solo registro
   return data.length > 0 ? (data[0] as Usuario) : null
 }
+
+
+
+
+export type UpdateUsuarioInput = {
+  id: string;
+  nombre?: string;
+  apellido?: string;
+  telefono?: string | null;
+  dni?: string | null; // puede venir con o sin guiones
+};
+
+const toDniRaw = (v: string | null | undefined) => {
+  if (v === undefined) return undefined; // no cambiar
+  if (v === null) return null;           // limpiar
+  const raw = v.replace(/\D/g, "").slice(0, 13);
+  return raw.length ? raw : null;
+};
+
+export async function updateUsuarioPerfilAction(input: UpdateUsuarioInput) {
+  const { id, nombre, apellido, telefono, dni } = input;
+  if (!id) throw new Error("Falta el id de usuario");
+
+  // 1) Traer estado actual para comparar teléfono
+  const { data: current, error: errCurrent } = await supabase
+    .from("tbl_usuarios")
+    .select("id, nombre, apellido, phone, phone_verified, dni")
+    .eq("id", id)
+    .single();
+
+  if (errCurrent) throw new Error(errCurrent.message);
+  if (!current) throw new Error("Usuario no encontrado");
+
+  // 2) Normalizar entradas
+  const nextDni = toDniRaw(dni);
+  const nextTelefono = telefono ?? undefined; // undefined = no cambiar; null = limpiar
+
+  // 3) Si cambia teléfono, forzar phone_verified=false
+  let nextPhoneVerified: boolean | undefined = undefined;
+  if (nextTelefono !== undefined) {
+    const changed = (nextTelefono ?? null) !== (current.phone ?? null);
+    if (changed) nextPhoneVerified = false;
+  }
+
+  // 4) Construir update solo con cambios
+  const update: Record<string, any> = {};
+  if (nombre !== undefined && nombre !== current.nombre) update.nombre = nombre;
+  if (apellido !== undefined && apellido !== current.apellido) update.apellido = apellido;
+  if (nextTelefono !== undefined && nextTelefono !== current.phone) update.phone = nextTelefono;
+  if (nextDni !== undefined && nextDni !== (current.dni ?? null)) update.dni = nextDni;
+  if (nextPhoneVerified !== undefined && nextPhoneVerified !== current.phone_verified) {
+    update.phone_verified = nextPhoneVerified;
+  }
+
+  // Nada que actualizar
+  if (Object.keys(update).length === 0) {
+    return {
+      id: current.id,
+      nombre: current.nombre,
+      apellido: current.apellido,
+      phone: current.phone,
+      phone_verified: current.phone_verified,
+      dni: current.dni,
+      _noChange: true,
+    };
+  }
+
+  // 5) Ejecutar update
+  const { data, error } = await supabase
+    .from("tbl_usuarios")
+    .update(update)
+    .eq("id", id)
+    .select("id, nombre, apellido, phone, phone_verified, dni")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as {
+    id: string;
+    nombre: string | null;
+    apellido: string | null;
+    phone: string | null;
+    phone_verified: boolean | null;
+    dni: string | null; // crudo (13 dígitos) o null
+  };
+}
+

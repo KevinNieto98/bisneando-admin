@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       returnOtpInResponse,
       email,
       channel = "email",
+      // replaceActive del body se ignora: abajo lo forzamos a true
     } = body || {};
 
     // 🧩 Validaciones mínimas
@@ -31,13 +32,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "channel inválido" }, { status: 400 });
     }
 
+    // Normaliza email a minúsculas (consistencia con hashing/consulta)
+    const email_lc = email.toLowerCase().trim();
+
     const ip = req.headers.get("x-forwarded-for") ?? undefined;
     const user_agent = req.headers.get("user-agent") ?? undefined;
 
     // 🔹 Siempre guardamos el email en metadata para correlacionar
-    const enrichedMetadata = { ...metadata, email };
+    const enrichedMetadata = { ...metadata, email: email_lc };
 
-    // 🧯 Generar OTP (anónimo si es acción pública)
+    // 🔁 Generar / Regenerar OTP (anónimo si es acción pública)
     const result = await generateOtpAction({
       id_accion,
       ttlSeconds,
@@ -49,8 +53,10 @@ export async function POST(req: Request) {
         typeof returnOtpInResponse === "boolean"
           ? returnOtpInResponse && process.env.NODE_ENV !== "production"
           : process.env.NODE_ENV !== "production",
-      allowAnonymous: PUBLIC_ACTIONS.has(id_accion), // 👈 clave para register
-      email, // 👈 sujeto explícito cuando es anónimo
+      allowAnonymous: PUBLIC_ACTIONS.has(id_accion), // 👈 clave para register/forgot
+      email: email_lc, // 👈 sujeto explícito (minúsculas)
+      replaceActive: true,  // 👈 FORZAR REGENERACIÓN: borra activos y crea nuevo
+      debug: true,          // 👈 logs detallados en servidor (no en prod)
     });
 
     if (!result?.id_event || !result?.expires_at) {
@@ -61,16 +67,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const otp = result.otp ?? enrichedMetadata?.otp; // sólo visible en dev si lo pides
+    const otp = result.otp ?? (enrichedMetadata as any)?.otp; // sólo visible en dev si lo pides
 
     // 🔹 Envío del mensaje (email/sms). Aquí implementamos email.
     if (channel === "email") {
       const toAddress =
         process.env.NODE_ENV !== "production"
           ? "nieto.kevin98@gmail.com" // ⬅️ override para DEV
-          : email;
+          : email_lc;
 
-      const { data, error } = await resend.emails.send({
+      const { error } = await resend.emails.send({
         from: "nieto.onboarding@resend.dev", // usa tu dominio verificado en prod
         to: toAddress,
         subject: "Tu código OTP 🔐",
@@ -105,9 +111,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error("Error en API /otp/generate:", error);
-    // Uniforma el error
     const message = error?.message || "Error al generar OTP";
-    // Si te interesa distinguir 401 aquí, puedes parsear el mensaje.
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import { PageContent } from "./components";
 
 export const metadata: Metadata = {
-  title: "Categorías | Admin",
-  description: "Gestión del catálogo de categorías.",
+  title: "Colonias | Admin",
+  description: "Gestión del catálogo de Colonias.",
   openGraph: {
-    title: "Categorías | Admin",
-    description: "Gestión del catálogo de categorías.",
+    title: "Colonias | Admin",
+    description: "Gestión del catálogo de Colonias.",
     type: "website",
   },
   alternates: {
-    canonical: "/categorias",
+    canonical: "/Colonias",
   },
 };
 

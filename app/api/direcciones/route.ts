@@ -71,6 +71,7 @@ export async function POST(req: Request) {
       uid,
       latitude,
       longitude,
+      tipo_direccion , // valor por defecto
       id_colonia = null,
       nombre_direccion = null,
       isPrincipal: isPrincipalReq = false,  // del body (camelCase)
@@ -147,6 +148,7 @@ export async function POST(req: Request) {
       nombre_direccion,
       willBePrincipal,
       referencia,
+      tipo_direccion
     });
 
     const nueva = await postDireccionAction({
@@ -157,6 +159,7 @@ export async function POST(req: Request) {
       nombre_direccion,
       isPrincipal: willBePrincipal, // la action lo mapeará a isprincipal
       referencia,
+      tipo_direccion
     });
 
     console.log(`[${reqId}] Insert OK:`, nueva);

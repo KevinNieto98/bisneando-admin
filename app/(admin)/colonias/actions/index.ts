@@ -208,6 +208,7 @@ type PostDireccionInput = {
   uid: string;
   latitude: number;
   longitude: number;
+  tipo_direccion: number;
   id_colonia?: number | null;
   nombre_direccion?: string | null; // "Casa", "Oficina", etc.
   isPrincipal?: boolean;            // default false
@@ -228,6 +229,7 @@ export async function postDireccionAction(input: PostDireccionInput) {
     nombre_direccion = null,
     isPrincipal = false,    // viene camelCase desde el front/route
     referencia = null,
+    tipo_direccion= 1,
   } = input;
 
   // Asegurar 7 decimales (DECIMAL(10,7))
@@ -240,6 +242,7 @@ export async function postDireccionAction(input: PostDireccionInput) {
     // ⚠️ MUY IMPORTANTE: la columna se llama isprincipal en Postgres
     isprincipal: Boolean(isPrincipal),
     referencia,
+    tipo_direccion,
   };
 
   console.log("[postDireccionAction] payload to insert:", payload);
@@ -248,7 +251,7 @@ export async function postDireccionAction(input: PostDireccionInput) {
     .from("tbl_direcciones")
     .insert([payload])
     .select(
-      "id_direccion, uid, latitude, longitude, id_colonia, nombre_direccion, isprincipal, referencia, created_at, updated_at"
+      "id_direccion, uid, latitude, longitude, id_colonia, nombre_direccion, isprincipal, referencia, created_at, updated_at, tipo_direccion"
     )
     .single();
 
@@ -276,6 +279,7 @@ export type DireccionRow = {
   uid: string;
   latitude: number;        // DECIMAL -> PostgREST suele devolver number/string; aquí número
   longitude: number;
+  tipo_direccion: number;
   id_colonia: number | null;
   nombre_direccion: string | null;
   isprincipal?: boolean;   // <- nombre más probable en DB
@@ -292,6 +296,7 @@ export type Direccion = {
   uid: string;
   latitude: number;
   longitude: number;
+  tipo_direccion: number;
   id_colonia: number | null;
   nombre_direccion: string | null;
   isPrincipal: boolean;     // <- normalizado
@@ -316,7 +321,7 @@ export async function getDireccionesByUidAction(uid: string): Promise<Direccion[
   // Si tu columna es is_principal, cambia 'isprincipal' -> 'is_principal'.
   const params = new URLSearchParams({
     select:
-      "id_direccion,uid,latitude,longitude,id_colonia,nombre_direccion,isprincipal,referencia,created_at,updated_at",
+      "id_direccion,uid,latitude,longitude,id_colonia,nombre_direccion,isprincipal,referencia,created_at,updated_at,tipo_direccion",
     "uid": `eq.${uid}`,
     "order": "isprincipal.desc,created_at.desc",
   });
@@ -353,6 +358,7 @@ export async function getDireccionesByUidAction(uid: string): Promise<Direccion[
     ),
     referencia: r.referencia ?? null,
     created_at: r.created_at,
+    tipo_direccion: r.tipo_direccion,
     updated_at: r.updated_at,
   }));
 }

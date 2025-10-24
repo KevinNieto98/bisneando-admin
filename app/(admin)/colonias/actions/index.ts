@@ -362,3 +362,33 @@ export async function getDireccionesByUidAction(uid: string): Promise<Direccion[
     updated_at: r.updated_at,
   }));
 }
+
+/** Elimina por id. No hace SELECT ni UPDATE. */
+export async function deleteDireccionAction(id_direccion: number): Promise<number> {
+  const reqId = `del_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const idNum = Number(id_direccion);
+  console.log(`[deleteDireccionAction:${reqId}] start`, { id_direccion: idNum });
+
+  if (!Number.isFinite(idNum)) {
+    console.error(`[deleteDireccionAction:${reqId}] id inválido`, { id_direccion });
+    throw new Error("id_direccion inválido.");
+  }
+
+  const { error, status } = await supabase
+    .from("tbl_direcciones")
+    .delete()
+    .eq("id_direccion", idNum);
+
+  console.log(`[deleteDireccionAction:${reqId}] response`, {
+    status,
+    error: error?.message ?? null,
+  });
+
+  if (error) {
+    console.error(`[deleteDireccionAction:${reqId}] error`, error);
+    throw new Error(error.message);
+  }
+
+  console.log(`[deleteDireccionAction:${reqId}] success ->`, { deletedId: idNum });
+  return idNum; // devolvemos el id solicitado (sin confirmación por DB)
+}

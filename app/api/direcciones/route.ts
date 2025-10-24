@@ -1,7 +1,7 @@
 // app/api/direcciones/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/utils/supabase/client";
-import { postDireccionAction } from "@/app/(admin)/colonias/actions";
+import { deleteDireccionAction, postDireccionAction } from "@/app/(admin)/colonias/actions";
 // ⬇️ importa tu acción de lectura (ajusta la ruta si la tienes en otro archivo)
 import { getDireccionesByUidAction } from "@/app/(admin)/colonias/actions";
 
@@ -169,5 +169,59 @@ export async function POST(req: Request) {
     console.error(`[${reqId}] POST /api/direcciones error:`, err);
     const message = err?.message || String(err) || "Error inesperado creando la dirección.";
     return NextResponse.json({ message, reqId }, { status: 500 });
+  }
+}
+export async function DELETE(req: Request) {
+  const reqId = `dir_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+  const t0 = Date.now();
+
+  try {
+    const url = new URL(req.url);
+    const idFromQuery = url.searchParams.get("id");
+    const body = await req.json().catch(() => ({} as any));
+    const idFromBody = body?.id;
+
+    const idParam = Number(idFromQuery ?? idFromBody);
+
+    console.log(`[${reqId}] DELETE /api/direcciones <- incoming`, {
+      path: url.pathname + url.search,
+      idFromQuery,
+      idFromBody,
+      idParam,
+    });
+
+    if (!Number.isFinite(idParam)) {
+      console.error(`[${reqId}] id inválido`, { idFromQuery, idFromBody });
+      return NextResponse.json(
+        { message: "id es requerido y debe ser numérico.", reqId },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const deletedId = await deleteDireccionAction(idParam);
+      console.log(`[${reqId}] deleteDireccionAction OK`, { deletedId });
+    } catch (delErr: any) {
+      console.error(`[${reqId}] deleteDireccionAction ERROR`, {
+        message: delErr?.message,
+        stack: delErr?.stack,
+      });
+      return NextResponse.json(
+        { message: "No se pudo eliminar la dirección.", details: delErr?.message, reqId },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[${reqId}] DONE 200`, { deletedId: idParam, durationMs: Date.now() - t0 });
+    return NextResponse.json(
+      { message: "Dirección eliminada.", deletedId: idParam, reqId },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error(`[${reqId}] FATAL`, { message: err?.message, stack: err?.stack, durationMs: Date.now() - t0 });
+    return NextResponse.json(
+      { message: err?.message ?? "Error al eliminar dirección.", reqId },
+      { status: 500 }
+    );
   }
 }

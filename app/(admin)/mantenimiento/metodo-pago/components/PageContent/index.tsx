@@ -51,8 +51,6 @@ export function PageContent() {
   const { data, loading, error, toggleDisponible, createMetodo, updateMetodo } =
     useMetodosData();
 
-  console.log("Metodos data:", data);
-  
   const ensureIcon = (icono?: string | null) => {
   if (!icono) return "CreditCard"; // 👈 fallback
   // normalizar (primera letra mayúscula)
@@ -67,8 +65,7 @@ export function PageContent() {
   const PAGE_SIZE = 10;
   const { currentPage, setCurrentPage, totalPages, pageItems: paginatedData } =
     useClientPagination(filtered, PAGE_SIZE);
-  console.log("Paginated data:", paginatedData);
-  // 🔁 Cada vez que se abre el modal, mostramos skeleton de entrada
+  
   useEffect(() => {
     if (isModalOpen) {
       setModalLoading(true);
@@ -213,7 +210,6 @@ export function PageContent() {
     ],
     [handleToggleDisponible]
   );
-  console.log("Columns:", columns);
   
   return (
     <div className="max-w-7xl mx-auto px-6 py-4">

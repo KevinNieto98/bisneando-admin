@@ -190,7 +190,6 @@ export async function updatePassword(formData: FormData) {
   }
 
   const { data, error } = await supabase.auth.updateUser({ password });
-  console.log("updateUser data:", data);
 
   if (error) {
     console.error("updateUser error:", error);

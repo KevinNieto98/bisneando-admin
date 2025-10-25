@@ -245,8 +245,6 @@ export async function postDireccionAction(input: PostDireccionInput) {
     tipo_direccion,
   };
 
-  console.log("[postDireccionAction] payload to insert:", payload);
-
   const { data, error } = await supabase
     .from("tbl_direcciones")
     .insert([payload])
@@ -267,7 +265,6 @@ export async function postDireccionAction(input: PostDireccionInput) {
   };
   delete (mapped as any).isprincipal;
 
-  console.log("[postDireccionAction] insert OK, mapped:", mapped);
   return mapped as DireccionRow;
 }
 
@@ -367,10 +364,8 @@ export async function getDireccionesByUidAction(uid: string): Promise<Direccion[
 export async function deleteDireccionAction(id_direccion: number): Promise<number> {
   const reqId = `del_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const idNum = Number(id_direccion);
-  console.log(`[deleteDireccionAction:${reqId}] start`, { id_direccion: idNum });
 
   if (!Number.isFinite(idNum)) {
-    console.error(`[deleteDireccionAction:${reqId}] id inválido`, { id_direccion });
     throw new Error("id_direccion inválido.");
   }
 
@@ -379,16 +374,176 @@ export async function deleteDireccionAction(id_direccion: number): Promise<numbe
     .delete()
     .eq("id_direccion", idNum);
 
-  console.log(`[deleteDireccionAction:${reqId}] response`, {
-    status,
-    error: error?.message ?? null,
-  });
+
 
   if (error) {
     console.error(`[deleteDireccionAction:${reqId}] error`, error);
     throw new Error(error.message);
   }
-
-  console.log(`[deleteDireccionAction:${reqId}] success ->`, { deletedId: idNum });
   return idNum; // devolvemos el id solicitado (sin confirmación por DB)
+}
+
+
+
+function normalizeDireccion(r: DireccionRow): Direccion {
+  return {
+    id_direccion: r.id_direccion,
+    uid: r.uid,
+    latitude: Number(r.latitude),
+    longitude: Number(r.longitude),
+    id_colonia: r.id_colonia ?? null,
+    nombre_direccion: r.nombre_direccion ?? null,
+    isPrincipal: Boolean(
+      (r as any).isprincipal ?? (r as any).is_principal ?? (r as any).isPrincipal ?? false
+    ),
+    referencia: r.referencia ?? null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    tipo_direccion: r.tipo_direccion,
+  };
+}
+
+/** Obtiene UNA dirección por id_direccion */
+export async function getDireccionByIdAction(id: number): Promise<Direccion | null> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // ANON
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return null;
+  }
+
+  // ⚠️ Si tu columna en DB es is_principal, cambia 'isprincipal' por 'is_principal' en "select".
+  const params = new URLSearchParams({
+    select:
+      "id_direccion,uid,latitude,longitude,id_colonia,nombre_direccion,isprincipal,referencia,created_at,updated_at,tipo_direccion",
+    id_direccion: `eq.${id}`,
+    limit: "1",
+  });
+
+  const url = `${base}/rest/v1/tbl_direcciones?${params.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error("Error al obtener dirección por id:", res.status, await res.text());
+    return null;
+  }
+
+  const rows = (await res.json()) as DireccionRow[];
+  if (!rows.length) return null;
+
+  return normalizeDireccion(rows[0]);
+}
+
+// === Actualizar dirección por id_direccion ===============================
+
+export type PutDireccionInput = {
+  id_direccion: number;               // requerido para ubicar la fila
+  nombre_direccion?: string | null;   // opcional
+  latitude?: number;                  // opcional
+  longitude?: number;                 // opcional
+  referencia?: string | null;         // opcional
+  tipo_direccion?: number;            // opcional
+  id_colonia?: number | null;         // opcional
+};
+
+/**
+ * Actualiza una dirección en tbl_direcciones. Solo envía las columnas definidas.
+ * - id_direccion: requerido (WHERE)
+ * - el resto es opcional; si no lo pasas, no se actualiza.
+ *
+ * Devuelve la fila actualizada normalizada al shape del front.
+ */
+export async function putDireccionAction(input: PutDireccionInput) {
+  const {
+    id_direccion,
+    nombre_direccion,
+    latitude,
+    longitude,
+    referencia,
+    tipo_direccion,
+    id_colonia,
+  } = input;
+
+  const idNum = Number(id_direccion);
+  if (!Number.isFinite(idNum) || idNum <= 0) {
+    throw new Error("id_direccion inválido.");
+  }
+
+  // Construimos el payload SOLO con campos definidos
+  const payload: Record<string, any> = {};
+
+  if (typeof nombre_direccion !== "undefined") {
+    payload.nombre_direccion = nombre_direccion; // puede ser string o null
+  }
+  if (typeof latitude !== "undefined") {
+    // Si tu columna es DECIMAL en Postgres, conviene mandar string con 7 decimales
+    payload.latitude = Number(latitude.toFixed(7)).toString();
+  }
+  if (typeof longitude !== "undefined") {
+    payload.longitude = Number(longitude.toFixed(7)).toString();
+  }
+  if (typeof referencia !== "undefined") {
+    payload.referencia = referencia; // string | null
+  }
+  if (typeof tipo_direccion !== "undefined") {
+    payload.tipo_direccion = Number(tipo_direccion);
+  }
+  if (typeof id_colonia !== "undefined") {
+    payload.id_colonia = id_colonia === null ? null : Number(id_colonia);
+  }
+
+  if (Object.keys(payload).length === 0) {
+    // Nada que actualizar
+    console.warn("[putDireccionAction] No se proporcionaron campos para actualizar.");
+    // Podemos devolver la fila actual, o lanzar error. Aquí devolvemos la fila actual para conveniencia.
+    return await getDireccionByIdAction(idNum);
+  }
+
+
+  const { data, error } = await supabase
+    .from("tbl_direcciones")
+    .update(payload)
+    .eq("id_direccion", idNum)
+    .select(
+      "id_direccion,uid,latitude,longitude,id_colonia,nombre_direccion,isprincipal,referencia,created_at,updated_at,tipo_direccion"
+    )
+    .single();
+
+  if (error) {
+    console.error("[putDireccionAction] error:", error.message);
+    throw new Error(error.message);
+  }
+
+  // Si ya tienes normalizeDireccion declarado más arriba, úsalo:
+  return normalizeDireccion(data as any);
+
+  // Si NO lo tuvieras, descomenta este bloque y elimina la línea anterior:
+  /*
+  const row = data as DireccionRow;
+  return {
+    id_direccion: row.id_direccion,
+    uid: row.uid,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    id_colonia: row.id_colonia ?? null,
+    nombre_direccion: row.nombre_direccion ?? null,
+    isPrincipal: Boolean(
+      (row as any).isprincipal ?? (row as any).is_principal ?? (row as any).isPrincipal ?? false
+    ),
+    referencia: row.referencia ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    tipo_direccion: row.tipo_direccion,
+  } as Direccion;
+  */
 }

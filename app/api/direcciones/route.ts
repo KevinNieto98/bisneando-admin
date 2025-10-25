@@ -1,7 +1,7 @@
 // app/api/direcciones/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/utils/supabase/client";
-import { deleteDireccionAction, postDireccionAction } from "@/app/(admin)/colonias/actions";
+import { deleteDireccionAction, postDireccionAction, putDireccionAction } from "@/app/(admin)/colonias/actions";
 // ⬇️ importa tu acción de lectura (ajusta la ruta si la tienes en otro archivo)
 import { getDireccionesByUidAction } from "@/app/(admin)/colonias/actions";
 
@@ -25,13 +25,6 @@ export async function GET(req: Request) {
     const limit = limitParam ? Number(limitParam) : undefined;
     const offset = offsetParam ? Number(offsetParam) : undefined;
     const onlyPrincipal = principalOnly === "true";
-
-    console.log(`[${reqId}] GET /api/direcciones`, {
-      uid,
-      limit,
-      offset,
-      onlyPrincipal,
-    });
 
     // Llama a tu acción que trae las direcciones por uid (PostgREST)
     let direcciones = await getDireccionesByUidAction(uid);
@@ -65,8 +58,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    console.log(`[${reqId}] Incoming body:`, body);
-
+    
     const {
       uid,
       latitude,
@@ -103,8 +95,6 @@ export async function POST(req: Request) {
       .select("id_direccion", { count: "exact", head: true })
       .eq("uid", uid);
 
-    console.log(`[${reqId}] pre-insert count result:`, { count, countErr });
-
     if (countErr) {
       console.error(`[${reqId}] Count error:`, countErr);
       return NextResponse.json(
@@ -115,18 +105,18 @@ export async function POST(req: Request) {
 
     // 2) Si es la PRIMERA dirección, que sea principal sí o sí
     const willBePrincipal = (count ?? 0) === 0 ? true : Boolean(isPrincipalReq);
-    console.log(`[${reqId}] willBePrincipal:`, willBePrincipal);
+    
 
     // 3) Si será principal y queremos forzar unicidad: desmarcar otras (si count=0, no hará updates)
     if (enforceSinglePrincipal && willBePrincipal) {
-      console.log(`[${reqId}] Unset previous principals for uid=${uid}`);
+      
       const { data: upData, error: upErr } = await supabase
         .from("tbl_direcciones")
         .update({ isprincipal: false }) // ⚠️ columna en minúsculas
         .eq("uid", uid)
         .select("id_direccion"); // para loguear qué tocó (aunque puede ser array vacío)
 
-      console.log(`[${reqId}] Unset result:`, { upDataLength: upData?.length ?? 0, upErr });
+    
       if (upErr) {
         console.error(`[${reqId}] Unset error:`, upErr);
         return NextResponse.json(
@@ -139,18 +129,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4) Insertar usando la acción (que ya mapea a isprincipal en DB)
-    console.log(`[${reqId}] Inserting...`, {
-      uid,
-      latNum,
-      lngNum,
-      id_colonia,
-      nombre_direccion,
-      willBePrincipal,
-      referencia,
-      tipo_direccion
-    });
-
     const nueva = await postDireccionAction({
       uid,
       latitude: latNum,
@@ -161,8 +139,6 @@ export async function POST(req: Request) {
       referencia,
       tipo_direccion
     });
-
-    console.log(`[${reqId}] Insert OK:`, nueva);
 
     return NextResponse.json(nueva, { status: 201 });
   } catch (err: any) {
@@ -183,12 +159,6 @@ export async function DELETE(req: Request) {
 
     const idParam = Number(idFromQuery ?? idFromBody);
 
-    console.log(`[${reqId}] DELETE /api/direcciones <- incoming`, {
-      path: url.pathname + url.search,
-      idFromQuery,
-      idFromBody,
-      idParam,
-    });
 
     if (!Number.isFinite(idParam)) {
       console.error(`[${reqId}] id inválido`, { idFromQuery, idFromBody });
@@ -200,7 +170,7 @@ export async function DELETE(req: Request) {
 
     try {
       const deletedId = await deleteDireccionAction(idParam);
-      console.log(`[${reqId}] deleteDireccionAction OK`, { deletedId });
+     
     } catch (delErr: any) {
       console.error(`[${reqId}] deleteDireccionAction ERROR`, {
         message: delErr?.message,
@@ -212,7 +182,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    console.log(`[${reqId}] DONE 200`, { deletedId: idParam, durationMs: Date.now() - t0 });
+   
     return NextResponse.json(
       { message: "Dirección eliminada.", deletedId: idParam, reqId },
       { status: 200 }
@@ -224,4 +194,129 @@ export async function DELETE(req: Request) {
       { status: 500 }
     );
   }
+}
+
+/* ============================
+   PUT /api/direcciones
+   (actualiza por id_direccion)
+   ============================ */
+export async function PUT(req: Request) {
+  const reqId = `dir_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    const url = new URL(req.url);
+    const idFromQuery = url.searchParams.get("id"); // opcional (también se acepta en body)
+    const body = await req.json().catch(() => ({} as any));
+
+    // id puede venir por query ?id= o en el body como id_direccion
+    const idParam = Number(idFromQuery ?? body?.id_direccion);
+    if (!Number.isFinite(idParam) || idParam <= 0) {
+      console.error(`[${reqId}] PUT /api/direcciones -> id inválido`, {
+        idFromQuery,
+        idFromBody: body?.id_direccion,
+      });
+      return NextResponse.json(
+        { message: "id_direccion es requerido y debe ser numérico.", reqId },
+        { status: 400 }
+      );
+    }
+
+    // Campos opcionales (solo se actualizan los que vengan definidos)
+    const updates: {
+      id_direccion: number;
+      nombre_direccion?: string | null;
+      latitude?: number;
+      longitude?: number;
+      referencia?: string | null;
+      tipo_direccion?: number;
+      id_colonia?: number | null;
+    } = { id_direccion: idParam };
+
+    // nombre_direccion
+    if ("nombre_direccion" in body) {
+      updates.nombre_direccion = body.nombre_direccion ?? null;
+    }
+
+    // referencia
+    if ("referencia" in body) {
+      updates.referencia = body.referencia ?? null;
+    }
+
+    // tipo_direccion
+    if ("tipo_direccion" in body) {
+      const t = Number(body.tipo_direccion);
+      if (!Number.isFinite(t)) {
+        return NextResponse.json(
+          { message: "tipo_direccion debe ser numérico.", reqId },
+          { status: 400 }
+        );
+      }
+      updates.tipo_direccion = t;
+    }
+
+    // id_colonia (puede ser null)
+    if ("id_colonia" in body) {
+      if (body.id_colonia === null) {
+        updates.id_colonia = null;
+      } else {
+        const c = Number(body.id_colonia);
+        if (!Number.isFinite(c)) {
+          return NextResponse.json(
+            { message: "id_colonia debe ser numérico o null.", reqId },
+            { status: 400 }
+          );
+        }
+        updates.id_colonia = c;
+      }
+    }
+
+    // latitude / longitude (si llegan, deben ser numéricas)
+    if ("latitude" in body) {
+      const lat = Number(body.latitude);
+      if (!Number.isFinite(lat)) {
+        return NextResponse.json(
+          { message: "latitude debe ser numérica.", reqId },
+          { status: 400 }
+        );
+      }
+      updates.latitude = lat;
+    }
+
+    if ("longitude" in body) {
+      const lng = Number(body.longitude);
+      if (!Number.isFinite(lng)) {
+        return NextResponse.json(
+          { message: "longitude debe ser numérica.", reqId },
+          { status: 400 }
+        );
+      }
+      updates.longitude = lng;
+    }
+
+    // Evita actualizar si no hay ningún campo opcional presente
+    const fieldsToUpdate = { ...updates };
+    delete (fieldsToUpdate as any).id_direccion;
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return NextResponse.json(
+        { message: "No se enviaron campos para actualizar.", reqId },
+        { status: 400 }
+      );
+    }
+
+    // Llama a la acción (formatea decimales y solo envía lo definido)
+    const updated = await putDireccionAction(updates);
+
+    return NextResponse.json(updated, { status: 200 });
+  } catch (err: any) {
+    console.error(`[${reqId}] PUT /api/direcciones error:`, err);
+    const message = err?.message || String(err) || "Error al actualizar la dirección.";
+    return NextResponse.json({ message, reqId }, { status: 500 });
+  }
+}
+
+/* ============================
+   PATCH /api/direcciones
+   (alias a PUT)
+   ============================ */
+export async function PATCH(req: Request) {
+  return PUT(req);
 }

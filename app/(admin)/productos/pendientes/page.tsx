@@ -63,8 +63,7 @@ export default function ProductosPendientesPage() {
       alert("Selecciona al menos un producto para aprobar.");
       return;
     }
-    // TODO: enviar a API
-    console.log("APROBAR:", aprobados);
+    
     setRows((prev) => prev.filter((r) => !r.selected)); // opcional
   };
 
@@ -74,8 +73,6 @@ export default function ProductosPendientesPage() {
       alert("Selecciona al menos un producto para rechazar.");
       return;
     }
-    // TODO: enviar a API
-    console.log("RECHAZAR:", rechazados);
     setRows((prev) => prev.filter((r) => !r.selected)); // opcional
   };
 

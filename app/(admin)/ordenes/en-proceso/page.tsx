@@ -7,6 +7,8 @@ import { Title } from "@/components";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui";
 import { Table, Column } from "@/components";
 import { Save, Search as SearchIcon } from "lucide-react";
+import { getOrdersHeadAction, OrderHead } from "../actions";
+
 
 type Status = "nueva" | "proceso" | "finalizada";
 
@@ -26,19 +28,33 @@ const formatoMoneda = (n: number) =>
 
 const formatoFecha = (iso: string) => new Date(iso).toLocaleString();
 
-const DATA_INICIAL: Orden[] = [
-  { id_orden: "ORD-1001", productos: 3, fecha_creacion: "2025-08-27T10:05:00Z", total: 1299.9, colonia: "Col. Centro", status: "nueva", canal: "Web", usuario: "Juan Pérez" },
-  { id_orden: "ORD-1002", productos: 1, fecha_creacion: "2025-08-27T12:40:00Z", total: 499.0, colonia: "Col. Roma", status: "proceso", canal: "App", usuario: "María López" },
-  { id_orden: "ORD-1003", productos: 5, fecha_creacion: "2025-08-26T18:15:00Z", total: 2899.5, colonia: "Col. Del Valle", status: "finalizada", canal: "Tienda", usuario: "Carlos Ruiz" },
-  { id_orden: "ORD-1004", productos: 2, fecha_creacion: "2025-08-27T15:20:00Z", total: 899.0, colonia: "Col. Escandón", status: "nueva", canal: "Web", usuario: "Ana Torres" },
-];
+// Mapea el id_status numérico a tu enum de UI
+const mapStatus = (id_status: number): Status => {
+  // Puedes ajustar esta lógica según tus flujos
+  if (id_status === 1) return "nueva";
+  if (id_status === 2 || id_status === 3) return "proceso";
+  return "finalizada"; // 4 o mayor = finalizada
+};
+
+// Mapea la row de la BD al tipo que usa la tabla del front
+const mapOrderHeadToOrden = (o: OrderHead): Orden => ({
+  id_orden: String(o.id_order),
+  productos: o.qty,
+  fecha_creacion: o.created_at ?? new Date().toISOString(),
+  total: o.total,
+  // Ejemplo: usas observacion para guardar algo tipo "Colonia 4"
+  colonia: o.observacion ?? "Colonia 4",
+  canal: o.tipo_dispositivo ?? "APP",
+  usuario: o.usuario_actualiza ?? "prueba@gmail.com",
+  status: mapStatus(o.id_status),
+});
 
 export default function MenuPrincipal() {
   const searchParams = useSearchParams();
   const estadoParam = searchParams.get("estado"); // "nueva" | "proceso" | "finalizada"
   const [tab, setTab] = useState<"nuevas" | "proceso" | "finalizadas">("proceso");
 
-  const [ordenes, setOrdenes] = useState<Orden[]>(DATA_INICIAL);
+  const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [draftStatus, setDraftStatus] = useState<Record<string, Status>>({});
 
   // buscadores por tab
@@ -46,11 +62,37 @@ export default function MenuPrincipal() {
   const [queryProceso, setQueryProceso] = useState("");
   const [queryFinal, setQueryFinal] = useState("");
 
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // set tab desde querystring
   useEffect(() => {
     if (estadoParam === "nueva") setTab("nuevas");
     else if (estadoParam === "finalizada") setTab("finalizadas");
     else if (estadoParam === "proceso") setTab("proceso");
   }, [estadoParam]);
+
+  // cargar órdenes desde Supabase al montar
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const rows = await getOrdersHeadAction();
+        const mapped = rows.map(mapOrderHeadToOrden);
+        setOrdenes(mapped);
+        console.log('ordenes', ordenes);
+        
+      } catch (e: any) {
+        console.error("Error cargando órdenes:", e);
+        setError(e?.message ?? "Error al cargar órdenes");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
 
   const applyStatusChange = (id: string, status: Status) => {
     setDraftStatus((prev) => ({ ...prev, [id]: status }));
@@ -60,9 +102,11 @@ export default function MenuPrincipal() {
     const idsEditados = Object.keys(draftStatus);
     if (idsEditados.length === 0) return;
 
-    // TODO: POST al backend con draftStatus si aplica
+    // TODO: aquí luego haces POST al backend para actualizar id_status
     setOrdenes((prev) =>
-      prev.map((o) => (draftStatus[o.id_orden] ? { ...o, status: draftStatus[o.id_orden] } : o))
+      prev.map((o) =>
+        draftStatus[o.id_orden] ? { ...o, status: draftStatus[o.id_orden] } : o
+      )
     );
     setDraftStatus({});
   };
@@ -87,9 +131,15 @@ export default function MenuPrincipal() {
       {
         header: "Fecha creación",
         align: "center",
-        cell: (r) => <span className="whitespace-nowrap">{formatoFecha(r.fecha_creacion)}</span>,
+        cell: (r) => (
+          <span className="whitespace-nowrap">{formatoFecha(r.fecha_creacion)}</span>
+        ),
       },
-      { header: "Total", align: "right", cell: (r) => <span className="font-medium">{formatoMoneda(r.total)}</span> },
+      {
+        header: "Total",
+        align: "right",
+        cell: (r) => <span className="font-medium">{formatoMoneda(r.total)}</span>,
+      },
       { header: "Colonia", align: "left", cell: (r) => r.colonia },
       { header: "Canal", align: "center", cell: (r) => r.canal },
       { header: "Usuario", align: "left", cell: (r) => r.usuario },
@@ -132,7 +182,9 @@ export default function MenuPrincipal() {
   // datasets por tab (con filtro)
   const dataNuevas = ordenes.filter((o) => o.status === "nueva" && coincide(o, queryNuevas));
   const dataProceso = ordenes.filter((o) => o.status === "proceso" && coincide(o, queryProceso));
-  const dataFinal = ordenes.filter((o) => o.status === "finalizada" && coincide(o, queryFinal));
+  const dataFinal = ordenes.filter(
+    (o) => o.status === "finalizada" && coincide(o, queryFinal)
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
@@ -142,6 +194,12 @@ export default function MenuPrincipal() {
           <Title title="Órdenes en Proceso" subtitle="Menú de órdenes" showBackButton />
         </div>
       </header>
+
+      {/* mensajes de estado */}
+      {loading && <p className="text-sm text-neutral-500">Cargando órdenes…</p>}
+      {error && !loading && (
+        <p className="text-sm text-red-600">Error al cargar órdenes: {error}</p>
+      )}
 
       {/* Row: Toolbar (botón guardar en su propia fila) */}
       <div className="flex items-center justify-end">

@@ -187,3 +187,66 @@ export async function createOrderAction(
     throw new Error(`No se pudo crear la orden: ${e?.message ?? String(e)}`);
   }
 }
+export type OrderHeadRow = {
+  id_order: number;
+  uid: string;
+  id_status: number;
+  id_max_log: number | null;
+  qty: number;
+  sub_total: number;
+  isv: number;
+  delivery: number;
+  ajuste: number;
+  total: number;
+  num_factura: string | null;
+  rtn: string | null;
+  latitud: number | null;
+  longitud: number | null;
+  tipo_dispositivo: string | null;
+  observacion: string | null;
+  usuario_actualiza: string | null;
+  created_at: string | null;
+};
+
+export type OrderHead = OrderHeadRow;
+
+/**
+ * Obtiene órdenes desde tbl_orders_head (REST de Supabase)
+ * y las devuelve con el shape de OrderHead.
+ */
+export async function getOrdersHeadAction(): Promise<OrderHead[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return [];
+  }
+
+  const select =
+    "id_order,uid,id_status,id_max_log,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion";
+
+  const url = `${base}/rest/v1/tbl_orders_head?select=${encodeURIComponent(
+    select
+  )}&order=id_order.desc`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  console.log('res:', res);
+
+  if (!res.ok) {
+    console.error("Error al obtener órdenes:", res.status, await res.text());
+    return [];
+  }
+
+  const rows: OrderHeadRow[] = await res.json();
+  return rows;
+}

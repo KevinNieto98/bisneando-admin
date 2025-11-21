@@ -186,11 +186,16 @@ export async function createOrderAction(
     }
     throw new Error(`No se pudo crear la orden: ${e?.message ?? String(e)}`);
   }
+
 }
+
+// Lo que devuelve la tabla de órdenes (sin joins)
 export type OrderHeadRow = {
   id_order: number;
-  uid: string;
-  id_status: number;
+  uid: string; // UUID del usuario
+  id_status: number | null;
+  id_metodo: number | null;          // 👈 FK a tbl_metodos_pago
+  id_colonia: number | null;
   id_max_log: number | null;
   qty: number;
   sub_total: number;
@@ -200,23 +205,49 @@ export type OrderHeadRow = {
   total: number;
   num_factura: string | null;
   rtn: string | null;
-  latitud: number | null;
-  longitud: number | null;
-  tipo_dispositivo: string | null;
+  latitud: string | null;
+  longitud: string | null;
   observacion: string | null;
   usuario_actualiza: string | null;
-  created_at: string | null;
+  fecha_creacion: string;
 };
 
-export type OrderHead = OrderHeadRow;
+// Catálogo de status
+export type StatusRow = {
+  id_status: number;
+  nombre: string | null;
+};
 
-/**
- * Obtiene órdenes desde tbl_orders_head (REST de Supabase)
- * y las devuelve con el shape de OrderHead.
- */
+// Catálogo de colonias
+export type ColoniaRow = {
+  id_colonia: number;
+  nombre_colonia: string | null;
+};
+
+// Catálogo de usuarios
+export type UsuarioRow = {
+  id: string; // UUID (string)
+  nombre: string | null;
+  apellido: string | null;
+};
+
+// Catálogo de métodos de pago
+export type MetodoPagoRow = {
+  id_metodo: number;
+  nombre_metodo: string | null;
+};
+
+// Lo que usas en el frontend (respuesta final)
+export type OrderHead = OrderHeadRow & {
+  status: string | null;
+  nombre_colonia: string | null;
+  usuario: string | null;      // nombre completo del usuario dueño de la orden
+  metodo_pago: string | null;  // nombre del método de pago
+};
+
 export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if (!base || !apiKey) {
     console.error(
@@ -225,28 +256,129 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
     return [];
   }
 
-  const select =
-    "id_order,uid,id_status,id_max_log,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion";
+  const selectOrders =
+    "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion";
 
-  const url = `${base}/rest/v1/tbl_orders_head?select=${encodeURIComponent(
-    select
+  const selectStatus = "id_status,nombre";
+  const selectColonias = "id_colonia,nombre_colonia";
+  const selectUsuarios = "id,nombre,apellido";
+  const selectMetodos = "id_metodo,nombre_metodo";
+
+  const ordersUrl = `${base}/rest/v1/tbl_orders_head?select=${encodeURIComponent(
+    selectOrders
   )}&order=id_order.desc`;
 
-  const res = await fetch(url, {
-    headers: {
-      apikey: apiKey,
-      Authorization: `Bearer ${apiKey}`,
-    },
-    cache: "no-store",
-  });
+  const statusUrl = `${base}/rest/v1/tbl_status_orders?select=${encodeURIComponent(
+    selectStatus
+  )}`;
 
-  console.log('res:', res);
+  const coloniasUrl = `${base}/rest/v1/tbl_colonias?select=${encodeURIComponent(
+    selectColonias
+  )}`;
 
-  if (!res.ok) {
-    console.error("Error al obtener órdenes:", res.status, await res.text());
+  const usuariosUrl = `${base}/rest/v1/tbl_usuarios?select=${encodeURIComponent(
+    selectUsuarios
+  )}`;
+
+  const metodosUrl = `${base}/rest/v1/tbl_metodos_pago?select=${encodeURIComponent(
+    selectMetodos
+  )}`;
+
+  const [ordersRes, statusRes, coloniasRes, usuariosRes, metodosRes] = await Promise.all([
+    fetch(ordersUrl, {
+      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    }),
+    fetch(statusUrl, {
+      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    }),
+    fetch(coloniasUrl, {
+      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    }),
+    fetch(usuariosUrl, {
+      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    }),
+    fetch(metodosUrl, {
+      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    }),
+  ]);
+
+  if (!ordersRes.ok) {
+    console.error("Error al obtener órdenes:", ordersRes.status, await ordersRes.text());
+    return [];
+  }
+  if (!statusRes.ok) {
+    console.error("Error al obtener status:", statusRes.status, await statusRes.text());
+    return [];
+  }
+  if (!coloniasRes.ok) {
+    console.error("Error al obtener colonias:", coloniasRes.status, await coloniasRes.text());
+    return [];
+  }
+  if (!usuariosRes.ok) {
+    console.error("Error al obtener usuarios:", usuariosRes.status, await usuariosRes.text());
+    return [];
+  }
+  if (!metodosRes.ok) {
+    console.error(
+      "Error al obtener métodos de pago:",
+      metodosRes.status,
+      await metodosRes.text()
+    );
     return [];
   }
 
-  const rows: OrderHeadRow[] = await res.json();
-  return rows;
+  const orders: OrderHeadRow[] = await ordersRes.json();
+  const statuses: StatusRow[] = await statusRes.json();
+  const colonias: ColoniaRow[] = await coloniasRes.json();
+  const usuarios: UsuarioRow[] = await usuariosRes.json();
+  const metodos: MetodoPagoRow[] = await metodosRes.json();
+
+  const statusMap = new Map<number, string | null>();
+  statuses.forEach((s) => statusMap.set(s.id_status, s.nombre ?? null));
+
+  const coloniaMap = new Map<number, string | null>();
+  colonias.forEach((c) => coloniaMap.set(c.id_colonia, c.nombre_colonia ?? null));
+
+  // join por id STRING (UUID)
+  const usuarioMap = new Map<string, string | null>();
+  usuarios.forEach((u) => {
+    const fullName = [u.nombre, u.apellido].filter(Boolean).join(" ").trim();
+    usuarioMap.set(u.id, fullName || null);
+  });
+
+  // join por id_metodo
+  const metodoPagoMap = new Map<number, string | null>();
+  metodos.forEach((m) => metodoPagoMap.set(m.id_metodo, m.nombre_metodo ?? null));
+
+  // 🔥 Aplanamos la respuesta
+  const result: OrderHead[] = orders.map((row) => {
+    const status =
+      row.id_status != null ? statusMap.get(row.id_status) ?? null : null;
+
+    const nombre_colonia =
+      row.id_colonia != null ? coloniaMap.get(row.id_colonia) ?? null : null;
+
+    const usuario =
+      row.uid != null && row.uid !== ""
+        ? usuarioMap.get(row.uid) ?? null
+        : null;
+
+    const metodo_pago =
+      row.id_metodo != null ? metodoPagoMap.get(row.id_metodo) ?? null : null;
+
+    return {
+      ...row,
+      status,
+      nombre_colonia,
+      usuario,
+      metodo_pago,
+    };
+  });
+
+  return result;
 }

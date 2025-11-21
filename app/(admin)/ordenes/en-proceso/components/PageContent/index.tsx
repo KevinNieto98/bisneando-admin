@@ -6,20 +6,23 @@ import { useSearchParams } from "next/navigation";
 import { Title } from "@/components";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui";
 import { Table, Column } from "@/components";
-import { ClipboardList, Save, Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, ShoppingCart, XCircle } from "lucide-react";
 import { getOrdersHeadAction, OrderHead } from "../../../actions";
 
-type Status = "nueva" | "proceso" | "finalizada";
+type StatusUI = "nueva" | "proceso" | "finalizada";
 
 type Orden = {
   id_orden: string;
+  uid: string;
   productos: number;
   fecha_creacion: string; // ISO
   total: number;
   colonia: string;
-  status: Status;
-  canal: string;
+  id_status: number;
+  status: string;
   usuario: string;
+  metodo_pago: string;
+  uiStatus: StatusUI;
 };
 
 // Formato Lempiras (HNL)
@@ -31,61 +34,96 @@ const formatoMoneda = (n: number) =>
 
 const formatoFecha = (iso: string) => new Date(iso).toLocaleString();
 
-// Mapea el id_status numérico a tu enum de UI
-const mapStatus = (id_status: number): Status => {
-  // Ajusta esta lógica a tus flujos reales
+// 🔥 Lógica de estados:
+// 1        → nueva
+// 2,3,4    → proceso
+// 5,6      → finalizada
+const mapStatus = (id_status: number): StatusUI => {
   if (id_status === 1) return "nueva";
-  if (id_status === 2 || id_status === 3) return "proceso";
-  return "finalizada"; // 4 o mayor = finalizada
+  if (id_status >= 2 && id_status <= 4) return "proceso";
+  if (id_status === 5 || id_status === 6) return "finalizada";
+  return "finalizada";
 };
 
-// Mapea la row de la BD al tipo que usa la tabla del front
-const mapOrderHeadToOrden = (o: OrderHead): Orden => ({
-  id_orden: String(o.id_order),
-  productos: o.qty,
-  fecha_creacion: o.created_at ?? new Date().toISOString(),
-  total: o.total,
-  colonia: o.observacion ?? "Colonia 4",        // placeholder
-  canal: o.tipo_dispositivo ?? "APP",           // placeholder
-  usuario: o.usuario_actualiza ?? "prueba@gmail.com", // placeholder
-  status: mapStatus(o.id_status),
-});
+// Mapper desde la API
+const mapOrderHeadToOrden = (o: OrderHead): Orden => {
+  const id_status = o.id_status ?? 1;
+  return {
+    id_orden: String(o.id_order),
+    uid: o.uid,
+    productos: o.qty,
+    fecha_creacion: o.fecha_creacion ?? new Date().toISOString(),
+    total: o.total,
+    colonia: o.nombre_colonia ?? "Sin colonia",
+    usuario: o.usuario ?? "sin-usuario",
+    metodo_pago: o.metodo_pago ?? "Sin método",
+    status: o.status ?? "Sin estado",
+    id_status,
+    uiStatus: mapStatus(id_status),
+  };
+};
+
+// Badge de status
+const getStatusClasses = (s: StatusUI) => {
+  if (s === "nueva") {
+    return "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  }
+  if (s === "proceso") {
+    return "bg-amber-50 text-amber-700 border border-amber-200";
+  }
+  return "bg-neutral-100 text-neutral-700 border border-neutral-200";
+};
+
+// Formatear duración (ms → texto amigable)
+const formatDuration = (ms: number): string => {
+  if (ms < 0) ms = 0;
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes} min`;
+};
+
+// Comparador para ordenar de más vieja a más nueva
+const sortByOldest = (a: Orden, b: Orden) => {
+  const ta = new Date(a.fecha_creacion).getTime();
+  const tb = new Date(b.fecha_creacion).getTime();
+  return ta - tb;
+};
 
 export function PageContent() {
   const searchParams = useSearchParams();
-  const estadoParam = searchParams.get("estado"); // "nueva" | "proceso" | "finalizada"
+  const estadoParam = searchParams.get("estado");
+
   const [tab, setTab] = useState<"nuevas" | "proceso" | "finalizadas">("proceso");
-
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
-  const [draftStatus, setDraftStatus] = useState<Record<string, Status>>({});
-
-  // buscadores por tab
   const [queryNuevas, setQueryNuevas] = useState("");
   const [queryProceso, setQueryProceso] = useState("");
   const [queryFinal, setQueryFinal] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // set tab desde querystring
+  // ⚠️ Para evitar problemas de hidratación, iniciamos now como null
+  const [now, setNow] = useState<number | null>(null);
+
+  // cambiar tab desde URL
   useEffect(() => {
     if (estadoParam === "nueva") setTab("nuevas");
     else if (estadoParam === "finalizada") setTab("finalizadas");
     else if (estadoParam === "proceso") setTab("proceso");
   }, [estadoParam]);
 
-  // cargar órdenes desde Supabase al montar
+  // cargar órdenes
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
-        setError(null);
         const rows = await getOrdersHeadAction();
-        const mapped = rows.map(mapOrderHeadToOrden);
-        setOrdenes(mapped);
-        console.log("ordenes", mapped);
+        setOrdenes(rows.map(mapOrderHeadToOrden));
       } catch (e: any) {
-        console.error("Error cargando órdenes:", e);
         setError(e?.message ?? "Error al cargar órdenes");
       } finally {
         setLoading(false);
@@ -95,25 +133,17 @@ export function PageContent() {
     load();
   }, []);
 
-  const applyStatusChange = (id: string, status: Status) => {
-    setDraftStatus((prev) => ({ ...prev, [id]: status }));
-  };
+  // ⏱️ Timer solo en cliente (sin SSR): actualiza cada 1 minuto
+  useEffect(() => {
+    setNow(Date.now()); // se setea tras el mount (cliente)
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 60000); // cada minuto
 
-  const guardarCambios = async () => {
-    const idsEditados = Object.keys(draftStatus);
-    if (idsEditados.length === 0) return;
+    return () => clearInterval(id);
+  }, []);
 
-    // TODO: aquí luego haces POST al backend para actualizar id_status
-    setOrdenes((prev) =>
-      prev.map((o) =>
-        draftStatus[o.id_orden] ? { ...o, status: draftStatus[o.id_orden] } : o
-      )
-    );
-    setDraftStatus({});
-  };
-
-  const hayCambios = Object.keys(draftStatus).length > 0;
-
+  // columnas tabla
   const columnas: Column<Orden>[] = useMemo(
     () => [
       {
@@ -136,91 +166,155 @@ export function PageContent() {
           <span className="whitespace-nowrap">{formatoFecha(r.fecha_creacion)}</span>
         ),
       },
+      { header: "Colonia", align: "left", cell: (r) => r.colonia },
+
+      // Usuario como link
+      {
+        header: "Usuario",
+        align: "left",
+        cell: (r) => (
+          <Link
+            href={`/usuarios/${r.uid}`}
+            className="text-blue-700 underline underline-offset-2 hover:opacity-80"
+          >
+            {r.usuario}
+          </Link>
+        ),
+      },
+
+      // Método de pago
+      {
+        header: "Método de pago",
+        align: "left",
+        cell: (r) => (
+          <span className="text-neutral-800 text-sm font-medium">
+            {r.metodo_pago}
+          </span>
+        ),
+      },
+
       {
         header: "Total",
         align: "right",
         cell: (r) => <span className="font-medium">{formatoMoneda(r.total)}</span>,
       },
-      { header: "Colonia", align: "left", cell: (r) => r.colonia },
-      { header: "Canal", align: "center", cell: (r) => r.canal },
-      { header: "Usuario", align: "left", cell: (r) => r.usuario },
+
+      // ⏱️ Tiempo en bandeja
       {
-        header: "Status",
+        header: "Tiempo en bandeja",
         align: "center",
         cell: (r) => {
-          const actual = draftStatus[r.id_orden] ?? r.status;
+          if (!now) return "--"; // durante la hidratación inicial
+          const createdAt = new Date(r.fecha_creacion).getTime();
+          const diff = now - createdAt;
           return (
-            <select
-              value={actual}
-              onChange={(e) => applyStatusChange(r.id_orden, e.target.value as Status)}
-              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm"
-            >
-              <option value="nueva">Nueva</option>
-              <option value="proceso">En Proceso</option>
-              <option value="finalizada">Finalizada</option>
-            </select>
+            <span className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-medium text-neutral-700">
+              {formatDuration(diff)}
+            </span>
           );
         },
       },
+
+      // Badge de status
+      {
+        header: "Status",
+        align: "center",
+        cell: (r) => (
+          <span
+            className={
+              "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium " +
+              getStatusClasses(r.uiStatus)
+            }
+          >
+            {r.status}
+          </span>
+        ),
+      },
+
+      // Botón rechazar
+      {
+        header: "Acciones",
+        align: "center",
+        cell: (r) => (
+          <button
+            onClick={() => console.log("rechazada", r.id_orden)}
+            className="inline-flex items-center justify-center rounded-full p-2 
+                       border border-red-300/60 bg-red-50 
+                       hover:bg-red-100 hover:border-red-400 
+                       transition-colors"
+            title="Rechazar orden"
+          >
+            <XCircle className="h-5 w-5 text-red-600" />
+          </button>
+        ),
+      },
     ],
-    [draftStatus]
+    [now]
   );
 
   const getRowId = (r: Orden) => r.id_orden;
 
-  // helpers de filtro
+  // filtros
   const normaliza = (s: string) => s.toLowerCase();
   const coincide = (o: Orden, q: string) => {
     if (!q) return true;
     const t = normaliza(q);
     return (
-      normaliza(o.id_orden).includes(t) ||
-      normaliza(o.colonia).includes(t) ||
-      normaliza(o.usuario).includes(t)
+      o.id_orden.toLowerCase().includes(t) ||
+      o.colonia.toLowerCase().includes(t) ||
+      o.usuario.toLowerCase().includes(t)
     );
   };
 
-  // datasets por tab (con filtro)
-  const dataNuevas = ordenes.filter((o) => o.status === "nueva" && coincide(o, queryNuevas));
-  const dataProceso = ordenes.filter((o) => o.status === "proceso" && coincide(o, queryProceso));
-  const dataFinal = ordenes.filter(
-    (o) => o.status === "finalizada" && coincide(o, queryFinal)
+  // 🔽 Ordenamos de la más vieja a la más nueva dentro de cada bandeja
+  const dataNuevas = useMemo(
+    () =>
+      ordenes
+        .filter((o) => o.uiStatus === "nueva" && coincide(o, queryNuevas))
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, queryNuevas]
+  );
+
+  const dataProceso = useMemo(
+    () =>
+      ordenes
+        .filter((o) => o.uiStatus === "proceso" && coincide(o, queryProceso))
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, queryProceso]
+  );
+
+  const dataFinal = useMemo(
+    () =>
+      ordenes
+        .filter((o) => o.uiStatus === "finalizada" && coincide(o, queryFinal))
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, queryFinal]
   );
 
   return (
     <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
-      {/* Row: Title */}
       <header className="flex items-end justify-between w-full gap-4">
-        <div className="w-full">
-          <Title 
-            title="Órdenes en Proceso" 
-            subtitle="Menú de órdenes"
-          icon={<ClipboardList className="h-6 w-6 text-neutral-700" />}
-            showBackButton />
-        </div>
+        <Title
+          title="Órdenes en Proceso"
+          subtitle="Menú de órdenes"
+          icon={<ShoppingCart className="h-6 w-6 text-neutral-700" />}
+          showBackButton
+        />
       </header>
 
-      {/* mensajes de estado */}
       {loading && <p className="text-sm text-neutral-500">Cargando órdenes…</p>}
-      {error && !loading && (
-        <p className="text-sm text-red-600">Error al cargar órdenes: {error}</p>
-      )}
+      {error && !loading && <p className="text-sm text-red-600">Error: {error}</p>}
 
-      {/* Row: Toolbar (botón guardar en su propia fila) */}
-      <div className="flex items-center justify-end">
-        <button
-          onClick={guardarCambios}
-          disabled={!hayCambios}
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-40"
-          title={hayCambios ? "Guardar cambios" : "No hay cambios"}
-        >
-          <Save className="h-4 w-4" />
-          Guardar cambios
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          setTab(v as "nuevas" | "proceso" | "finalizadas")
+        }
+        className="w-full"
+      >
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="nuevas">Órdenes Nuevas</TabsTrigger>
           <TabsTrigger value="proceso">Órdenes en Proceso</TabsTrigger>
@@ -229,7 +323,6 @@ export function PageContent() {
 
         {/* NUEVAS */}
         <TabsContent value="nuevas">
-          {/* buscador */}
           <div className="mt-4">
             <div className="relative max-w-md">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />

@@ -257,7 +257,7 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   }
 
   const selectOrders =
-    "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion";
+    "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion";
 
   const selectStatus = "id_status,nombre";
   const selectColonias = "id_colonia,nombre_colonia";
@@ -381,4 +381,112 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   });
 
   return result;
+}
+
+export async function rejectOrderAction(params: {
+  id_order: number;
+  observacion: string;
+  usuario_actualiza?: string | null;
+}): Promise<void> {
+  const { id_order, observacion, usuario_actualiza } = params;
+
+  if (!id_order) {
+    throw new Error("Falta id_order para rechazar la orden.");
+  }
+
+  // 1) Traer detalle de la orden
+  const { data: detRows, error: detErr } = await supabase
+    .from("tbl_orders_det")
+    .select("id_producto, qty")
+    .eq("id_order", id_order);
+
+  if (detErr) {
+    throw new Error(`Error al obtener el detalle de la orden: ${detErr.message}`);
+  }
+
+  if (!detRows || detRows.length === 0) {
+    throw new Error("La orden no tiene detalle asociado.");
+  }
+
+  // 2) Agrupar cantidades por producto (por si algún producto está repetido)
+  const map = new Map<number, number>();
+  for (const row of detRows as { id_producto: number; qty: number }[]) {
+    const current = map.get(row.id_producto) ?? 0;
+    map.set(row.id_producto, current + Number(row.qty));
+  }
+
+  const itemsComp = Array.from(map.entries()).map(([id_producto, qty]) => ({
+    id_producto,
+    qty,
+  }));
+
+  // 3) Devolver stock: usamos el mismo RPC pero con p_sign = +1 (sumar al stock)
+  const { data: incOk, error: incErr } = await supabase.rpc(
+    "rpc_adjust_stock",
+    { p_items: itemsComp, p_sign: 1 } // +1 = sumar stock
+  );
+
+  if (incErr) {
+    throw new Error(`No fue posible devolver el stock: ${incErr.message}`);
+  }
+
+  if (!incOk) {
+    throw new Error("El RPC de ajuste de stock no confirmó la operación.");
+  }
+
+  // 4) Actualizar encabezado: id_status = 6, observación y fecha_actualizacion
+  const nowIso = new Date().toISOString();
+
+  const { error: upErr } = await supabase
+    .from("tbl_orders_head")
+    .update({
+      id_status: 6,
+      observacion,
+      usuario_actualiza: usuario_actualiza ?? "admin",
+      fecha_actualizacion: nowIso, // 👈 actualizar fecha_actualizacion
+    })
+    .eq("id_order", id_order);
+
+  if (upErr) {
+    throw new Error(
+      `No se pudo actualizar el encabezado de la orden: ${upErr.message}`
+    );
+  }
+
+  // 5) Insertar actividad en tbl_activity_orders
+  const actividadRow = {
+    id_order,
+    id_status: 6,
+    fecha_actualizacion: nowIso,
+    usuario_actualiza: "admin",
+    observacion,
+  };
+
+  const { data: actData, error: actErr } = await supabase
+    .from("tbl_activity_orders")
+    .insert([actividadRow])
+    .select("id_act")
+    .single();
+
+  if (actErr) {
+    throw new Error(
+      `No se pudo insertar la actividad de rechazo: ${actErr.message}`
+    );
+  }
+
+  const id_act = actData?.id_act;
+
+  // 6) Actualizar id_max_log en el header con el id de esta actividad
+  if (id_act) {
+    const { error: logErr } = await supabase
+      .from("tbl_orders_head")
+      .update({ id_max_log: id_act })
+      .eq("id_order", id_order);
+
+    if (logErr) {
+      throw new Error(
+        `No se pudo actualizar id_max_log de la orden: ${logErr.message}`
+      );
+    }
+  }
 }

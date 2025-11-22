@@ -1,21 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, FormEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Title } from "@/components";
+import { Alert, Modal, Table, Title, Column } from "@/components";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui";
-import { Table, Column } from "@/components";
-import { Search as SearchIcon, ShoppingCart, XCircle } from "lucide-react";
-import { getOrdersHeadAction, OrderHead } from "../../../actions";
+import {
+  Search as SearchIcon,
+  ShoppingCart,
+  XCircle,
+  Download,
+} from "lucide-react";
+import {
+  getOrdersHeadAction,
+  OrderHead,
+  rejectOrderAction,
+} from "../../../actions";
+import { useUIStore } from "@/store";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FooterModal } from "../FooterModal"; // ajusta ruta si es necesario
 
 type StatusUI = "nueva" | "proceso" | "finalizada";
+type FiltroEstado = "todas" | "rechazadas" | "completadas";
 
 type Orden = {
   id_orden: string;
   uid: string;
   productos: number;
   fecha_creacion: string; // ISO
+  fecha_actualizacion?: string | null;
   total: number;
   colonia: string;
   id_status: number;
@@ -53,6 +66,8 @@ const mapOrderHeadToOrden = (o: OrderHead): Orden => {
     uid: o.uid,
     productos: o.qty,
     fecha_creacion: o.fecha_creacion ?? new Date().toISOString(),
+    // asegúrate de incluir fecha_actualizacion en el select de la API
+    fecha_actualizacion: (o as any).fecha_actualizacion ?? null,
     total: o.total,
     colonia: o.nombre_colonia ?? "Sin colonia",
     usuario: o.usuario ?? "sin-usuario",
@@ -87,27 +102,66 @@ const formatDuration = (ms: number): string => {
   return `${minutes} min`;
 };
 
-// Comparador para ordenar de más vieja a más nueva
+// Comparador por fecha creación (para nuevas/proceso)
 const sortByOldest = (a: Orden, b: Orden) => {
   const ta = new Date(a.fecha_creacion).getTime();
   const tb = new Date(b.fecha_creacion).getTime();
   return ta - tb;
 };
 
+// ¿Es hoy? usando fecha local
+const isTodayLocal = (iso?: string | null) => {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const today = new Date();
+  return (
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate()
+  );
+};
+
+// Comparador por fecha_actualizacion (fallback a fecha_creacion)
+// 👉 más reciente primero
+const sortByUpdatedNewest = (a: Orden, b: Orden) => {
+  const ta = new Date(a.fecha_actualizacion ?? a.fecha_creacion).getTime();
+  const tb = new Date(b.fecha_actualizacion ?? b.fecha_creacion).getTime();
+  return tb - ta; // más nueva arriba
+};
+
+const esRechazada = (o: Orden) => o.id_status === 6;
+const esCompletada = (o: Orden) => o.id_status === 5;
+
 export function PageContent() {
   const searchParams = useSearchParams();
   const estadoParam = searchParams.get("estado");
 
-  const [tab, setTab] = useState<"nuevas" | "proceso" | "finalizadas">("proceso");
+  const [tab, setTab] = useState<"nuevas" | "proceso" | "finalizadas">(
+    "proceso"
+  );
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [queryNuevas, setQueryNuevas] = useState("");
   const [queryProceso, setQueryProceso] = useState("");
   const [queryFinal, setQueryFinal] = useState("");
+  const [filtroEstadoFinal, setFiltroEstadoFinal] =
+    useState<FiltroEstado>("todas");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ⚠️ Para evitar problemas de hidratación, iniciamos now como null
+  // ⏱️ Para evitar problemas de hidratación
   const [now, setNow] = useState<number | null>(null);
+
+  // Modal de rechazo
+  const [openReject, setOpenReject] = useState(false);
+  const [rejectingOrder, setRejectingOrder] = useState<Orden | null>(null);
+  const [observacion, setObservacion] = useState("");
+  const [submittingReject, setSubmittingReject] = useState(false);
+  const rejectFormId = "rechazar-orden-form";
+
+  // UI store
+  const openConfirm = useUIStore((s) => s.openConfirm);
+  const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
 
   // cambiar tab desde URL
   useEffect(() => {
@@ -125,26 +179,98 @@ export function PageContent() {
         setOrdenes(rows.map(mapOrderHeadToOrden));
       } catch (e: any) {
         setError(e?.message ?? "Error al cargar órdenes");
+        mostrarAlerta("Error", "No se pudieron cargar las órdenes.", "danger");
       } finally {
         setLoading(false);
       }
     };
 
     load();
-  }, []);
+  }, [mostrarAlerta]);
 
   // ⏱️ Timer solo en cliente (sin SSR): actualiza cada 1 minuto
   useEffect(() => {
-    setNow(Date.now()); // se setea tras el mount (cliente)
+    setNow(Date.now());
     const id = setInterval(() => {
       setNow(Date.now());
-    }, 60000); // cada minuto
+    }, 60000);
 
     return () => clearInterval(id);
   }, []);
 
-  // columnas tabla
-  const columnas: Column<Orden>[] = useMemo(
+  // Abrir modal de rechazo
+  const handleOpenRejectModal = (orden: Orden) => {
+    if (submittingReject) return;
+    setRejectingOrder(orden);
+    setObservacion("");
+    setOpenReject(true);
+  };
+
+  // Cerrar modal de rechazo
+  const handleCloseRejectModal = () => {
+    if (submittingReject) return;
+    setOpenReject(false);
+    setRejectingOrder(null);
+    setObservacion("");
+  };
+
+  // Submit del formulario del modal (aquí se lanza el ConfirmDialog)
+  const handleSubmitReject = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!rejectingOrder) return;
+
+    openConfirm({
+      titulo: "Confirmar rechazo",
+      mensaje: `¿Confirmas que deseas rechazar la orden #${rejectingOrder.id_orden}?`,
+      confirmText: "Rechazar",
+      rejectText: "Cancelar",
+      onConfirm: async () => {
+        const nowIso = new Date().toISOString(); // misma hora para UI
+        setSubmittingReject(true);
+        try {
+          await rejectOrderAction({
+            id_order: Number(rejectingOrder.id_orden),
+            observacion,
+          });
+
+          // Actualizar estado en memoria para que se mueva a "finalizadas"
+          setOrdenes((prev) =>
+            prev.map((o) =>
+              o.id_orden === rejectingOrder.id_orden
+                ? {
+                    ...o,
+                    id_status: 6,
+                    uiStatus: "finalizada",
+                    status: "Rechazada",
+                    fecha_actualizacion: nowIso, // 👈 clave para filtro + orden
+                  }
+                : o
+            )
+          );
+
+          mostrarAlerta(
+            "Orden rechazada",
+            `La orden #${rejectingOrder.id_orden} se rechazó correctamente.`,
+            "success"
+          );
+
+          handleCloseRejectModal();
+        } catch (err) {
+          console.error("Error al rechazar la orden:", err);
+          mostrarAlerta(
+            "Error",
+            "No se pudo rechazar la orden. Intenta de nuevo.",
+            "danger"
+          );
+        } finally {
+          setSubmittingReject(false);
+        }
+      },
+    });
+  };
+
+  // Columnas base (sin Acciones, sin fecha actualización)
+  const columnasBase: Column<Orden>[] = useMemo(
     () => [
       {
         header: "ID Orden",
@@ -163,7 +289,9 @@ export function PageContent() {
         header: "Fecha creación",
         align: "center",
         cell: (r) => (
-          <span className="whitespace-nowrap">{formatoFecha(r.fecha_creacion)}</span>
+          <span className="whitespace-nowrap">
+            {formatoFecha(r.fecha_creacion)}
+          </span>
         ),
       },
       { header: "Colonia", align: "left", cell: (r) => r.colonia },
@@ -196,7 +324,9 @@ export function PageContent() {
       {
         header: "Total",
         align: "right",
-        cell: (r) => <span className="font-medium">{formatoMoneda(r.total)}</span>,
+        cell: (r) => (
+          <span className="font-medium">{formatoMoneda(r.total)}</span>
+        ),
       },
 
       // ⏱️ Tiempo en bandeja
@@ -204,7 +334,7 @@ export function PageContent() {
         header: "Tiempo en bandeja",
         align: "center",
         cell: (r) => {
-          if (!now) return "--"; // durante la hidratación inicial
+          if (!now) return "--";
           const createdAt = new Date(r.fecha_creacion).getTime();
           const diff = now - createdAt;
           return (
@@ -230,31 +360,57 @@ export function PageContent() {
           </span>
         ),
       },
+    ],
+    [now]
+  );
 
-      // Botón rechazar
+  // Columnas con Acciones (para nuevas y proceso)
+  const columnasConAcciones: Column<Orden>[] = useMemo(
+    () => [
+      ...columnasBase,
       {
         header: "Acciones",
         align: "center",
         cell: (r) => (
           <button
-            onClick={() => console.log("rechazada", r.id_orden)}
+            onClick={() => handleOpenRejectModal(r)}
             className="inline-flex items-center justify-center rounded-full p-2 
                        border border-red-300/60 bg-red-50 
                        hover:bg-red-100 hover:border-red-400 
-                       transition-colors"
+                       transition-colors disabled:opacity-60"
             title="Rechazar orden"
+            disabled={submittingReject}
           >
             <XCircle className="h-5 w-5 text-red-600" />
           </button>
         ),
       },
     ],
-    [now]
+    [columnasBase, submittingReject]
   );
+
+  // Columnas SOLO para finalizadas: base + Fecha actualización (sin Acciones)
+  const columnasFinalizadas: Column<Orden>[] = useMemo(() => {
+    const base = [...columnasBase];
+    // Insertar después de "Fecha creación"
+    base.splice(3, 0, {
+      header: "Fecha actualización",
+      align: "center",
+      cell: (r) =>
+        r.fecha_actualizacion ? (
+          <span className="whitespace-nowrap">
+            {formatoFecha(r.fecha_actualizacion)}
+          </span>
+        ) : (
+          <span className="text-xs text-neutral-400">--</span>
+        ),
+    });
+    return base;
+  }, [columnasBase]);
 
   const getRowId = (r: Orden) => r.id_orden;
 
-  // filtros
+  // filtros texto
   const normaliza = (s: string) => s.toLowerCase();
   const coincide = (o: Orden, q: string) => {
     if (!q) return true;
@@ -266,7 +422,14 @@ export function PageContent() {
     );
   };
 
-  // 🔽 Ordenamos de la más vieja a la más nueva dentro de cada bandeja
+  const filtraEstadoFinal = (o: Orden) => {
+    if (filtroEstadoFinal === "todas") return true;
+    if (filtroEstadoFinal === "rechazadas") return esRechazada(o);
+    if (filtroEstadoFinal === "completadas") return esCompletada(o);
+    return true;
+  };
+
+  // 🔽 Nuevas y Proceso: por fecha_creacion (más viejas primero)
   const dataNuevas = useMemo(
     () =>
       ordenes
@@ -285,17 +448,89 @@ export function PageContent() {
     [ordenes, queryProceso]
   );
 
+  // 🔽 Finalizadas: solo de hoy, más recientes primero (por fecha_actualizacion) + filtro estado
   const dataFinal = useMemo(
     () =>
       ordenes
-        .filter((o) => o.uiStatus === "finalizada" && coincide(o, queryFinal))
+        .filter(
+          (o) =>
+            o.uiStatus === "finalizada" &&
+            isTodayLocal(o.fecha_actualizacion ?? o.fecha_creacion) &&
+            coincide(o, queryFinal) &&
+            filtraEstadoFinal(o)
+        )
         .slice()
-        .sort(sortByOldest),
-    [ordenes, queryFinal]
+        .sort(sortByUpdatedNewest), // 👈 más nueva arriba
+    [ordenes, queryFinal, filtroEstadoFinal]
   );
+
+  // Helper general para exportar
+  const exportOrdersToCsv = (filename: string, data: Orden[]) => {
+    if (!data.length) return;
+
+    const headers = [
+      "ID Orden",
+      "Productos",
+      "Fecha creación",
+      "Fecha actualización",
+      "Total",
+      "Colonia",
+      "Usuario",
+      "Método de pago",
+      "Estado",
+    ];
+
+    const rows = data.map((o) => [
+      o.id_orden,
+      o.productos,
+      formatoFecha(o.fecha_creacion),
+      o.fecha_actualizacion ? formatoFecha(o.fecha_actualizacion) : "",
+      o.total.toString(),
+      o.colonia,
+      o.usuario,
+      o.metodo_pago,
+      o.status,
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((field) => {
+            const f = String(field ?? "");
+            const escaped = f.replace(/"/g, '""');
+            return `"${escaped}"`;
+          })
+          .join(";")
+      )
+      .join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportNuevas = () =>
+    exportOrdersToCsv("ordenes_nuevas.csv", dataNuevas);
+
+  const handleExportProceso = () =>
+    exportOrdersToCsv("ordenes_en_proceso.csv", dataProceso);
+
+  const handleExportFinalizadas = () =>
+    exportOrdersToCsv("ordenes_finalizadas_hoy.csv", dataFinal);
 
   return (
     <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
+      {/* Alert global */}
+      <Alert />
+
       <header className="flex items-end justify-between w-full gap-4">
         <Title
           title="Órdenes en Proceso"
@@ -306,7 +541,9 @@ export function PageContent() {
       </header>
 
       {loading && <p className="text-sm text-neutral-500">Cargando órdenes…</p>}
-      {error && !loading && <p className="text-sm text-red-600">Error: {error}</p>}
+      {error && !loading && (
+        <p className="text-sm text-red-600">Error: {error}</p>
+      )}
 
       <Tabs
         value={tab}
@@ -323,22 +560,33 @@ export function PageContent() {
 
         {/* NUEVAS */}
         <TabsContent value="nuevas">
-          <div className="mt-4">
-            <div className="relative max-w-md">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-              <input
-                value={queryNuevas}
-                onChange={(e) => setQueryNuevas(e.target.value)}
-                placeholder="Buscar por ID, colonia o usuario…"
-                className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
-              />
-            </div>
-          </div>
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-md">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={queryNuevas}
+                  onChange={(e) => setQueryNuevas(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
 
-          <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleExportNuevas}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                disabled={dataNuevas.length === 0}
+                title="Exportar órdenes nuevas"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+            </div>
+
             <Table
               data={dataNuevas}
-              columns={columnas}
+              columns={columnasConAcciones}
               getRowId={getRowId}
               emptyText="No hay órdenes nuevas"
               ariaLabel="Tabla de órdenes nuevas"
@@ -348,22 +596,33 @@ export function PageContent() {
 
         {/* PROCESO */}
         <TabsContent value="proceso">
-          <div className="mt-4">
-            <div className="relative max-w-md">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-              <input
-                value={queryProceso}
-                onChange={(e) => setQueryProceso(e.target.value)}
-                placeholder="Buscar por ID, colonia o usuario…"
-                className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
-              />
-            </div>
-          </div>
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-md">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={queryProceso}
+                  onChange={(e) => setQueryProceso(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
 
-          <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleExportProceso}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                disabled={dataProceso.length === 0}
+                title="Exportar órdenes en proceso"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+            </div>
+
             <Table
               data={dataProceso}
-              columns={columnas}
+              columns={columnasConAcciones}
               getRowId={getRowId}
               emptyText="No hay órdenes en proceso"
               ariaLabel="Tabla de órdenes en proceso"
@@ -371,31 +630,152 @@ export function PageContent() {
           </div>
         </TabsContent>
 
-        {/* FINALIZADAS */}
+        {/* FINALIZADAS (solo hoy, más recientes primero, sin Acciones, con Fecha actualización) */}
         <TabsContent value="finalizadas">
-          <div className="mt-4">
-            <div className="relative max-w-md">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-              <input
-                value={queryFinal}
-                onChange={(e) => setQueryFinal(e.target.value)}
-                placeholder="Buscar por ID, colonia o usuario…"
-                className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+          <div className="mt-4 space-y-4">
+            {/* Toolbar Finalizadas */}
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              {/* Buscador */}
+              <div className="relative w-full md:max-w-md">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={queryFinal}
+                  onChange={(e) => setQueryFinal(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
+
+              {/* Filtros / Export */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Filtro estado finalizadas */}
+                <div className="inline-flex rounded-xl border border-neutral-300 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroEstadoFinal("todas")}
+                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg ${
+                      filtroEstadoFinal === "todas"
+                        ? "bg-neutral-900 text-white"
+                        : "hover:bg-neutral-100"
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroEstadoFinal("rechazadas")}
+                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg ${
+                      filtroEstadoFinal === "rechazadas"
+                        ? "bg-neutral-900 text-white"
+                        : "hover:bg-neutral-100"
+                    }`}
+                  >
+                    Rechazadas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroEstadoFinal("completadas")}
+                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg ${
+                      filtroEstadoFinal === "completadas"
+                        ? "bg-neutral-900 text-white"
+                        : "hover:bg-neutral-100"
+                    }`}
+                  >
+                    Completadas
+                  </button>
+                </div>
+
+                {/* Exportar */}
+                <button
+                  type="button"
+                  onClick={handleExportFinalizadas}
+                  className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                  disabled={dataFinal.length === 0}
+                  title="Exportar órdenes finalizadas de hoy (vista actual)"
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar
+                </button>
+              </div>
+            </div>
+
+            {/* Tabla Finalizadas */}
+            <div>
+              <Table
+                data={dataFinal}
+                columns={columnasFinalizadas}
+                getRowId={getRowId}
+                emptyText="No hay órdenes finalizadas hoy"
+                ariaLabel="Tabla de órdenes finalizadas"
               />
             </div>
           </div>
-
-          <div className="mt-4">
-            <Table
-              data={dataFinal}
-              columns={columnas}
-              getRowId={getRowId}
-              emptyText="No hay órdenes finalizadas"
-              ariaLabel="Tabla de órdenes finalizadas"
-            />
-          </div>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de rechazo */}
+      <Modal
+        open={openReject}
+        size="xl"
+        onClose={handleCloseRejectModal}
+        title={
+          rejectingOrder
+            ? `Rechazar orden #${rejectingOrder.id_orden}`
+            : "Rechazar orden"
+        }
+        icon={<XCircle className="w-5 h-5 text-red-600" />}
+        content={
+          <form
+            id={rejectFormId}
+            onSubmit={handleSubmitReject}
+            className={
+              submittingReject
+                ? "space-y-4 pointer-events-none opacity-60"
+                : "space-y-4"
+            }
+          >
+            {submittingReject ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-6">
+                <span className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
+                <span className="text-sm text-neutral-600">
+                  Rechazando orden...
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label
+                  htmlFor="observacion"
+                  className="text-sm font-medium text-neutral-800"
+                >
+                  Observación
+                </label>
+                <textarea
+                  id="observacion"
+                  name="observacion"
+                  rows={4}
+                  className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                  placeholder="Escribe el motivo del rechazo..."
+                  value={observacion}
+                  onChange={(e) => setObservacion(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+          </form>
+        }
+        footer={
+          <FooterModal
+            formId={rejectFormId}
+            onCancel={handleCloseRejectModal}
+            disabled={submittingReject}
+            cancelText="Cerrar"
+            saveText="Guardar"
+          />
+        }
+      />
+
+      {/* Confirm global */}
+      <ConfirmDialog />
     </div>
   );
 }

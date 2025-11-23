@@ -2,6 +2,10 @@
 
 import { supabase } from "@/utils/supabase/client";
 
+/* =========================================================================
+   Tipos de entrada para creación de orden
+   ========================================================================= */
+
 export type OrderDetailInput = {
   id_producto: number;
   qty: number;
@@ -34,7 +38,96 @@ export type CreateOrderResult = {
   id_act?: number;
 };
 
-/* ===== Helpers ===== */
+/* =========================================================================
+   Tipos de tablas / catálogos
+   ========================================================================= */
+
+export type OrderHeadRow = {
+  id_order: number;
+  uid: string;
+  id_status: number | null;
+  id_metodo: number | null;
+  id_colonia: number | null;
+  id_max_log: number | null;
+  qty: number;
+  sub_total: number;
+  isv: number;
+  delivery: number;
+  ajuste: number;
+  total: number;
+  num_factura: string | null;
+  rtn: string | null;
+  latitud: string | null;
+  longitud: string | null;
+  observacion: string | null;
+  usuario_actualiza: string | null;
+  fecha_creacion: string;
+  fecha_actualizacion?: string | null;
+};
+
+export type OrderDetailRow = {
+  id_det: number;
+  id_order: number;
+  id_producto: number;
+  qty: number;
+  precio: number;
+  sub_total: number;
+  id_bodega: number | null;
+};
+
+export type OrderActivityRow = {
+  id_act: number;
+  id_order: number;
+  id_status: number | null;
+  fecha_actualizacion: string | null;
+  usuario_actualiza: string | null;
+  observacion: string | null;
+};
+
+export type StatusRow = {
+  id_status: number;
+  nombre: string | null;
+};
+
+export type ColoniaRow = {
+  id_colonia: number;
+  nombre_colonia: string | null;
+};
+
+export type UsuarioRow = {
+  id: string; // UUID
+  nombre: string | null;
+  apellido: string | null;
+};
+
+export type MetodoPagoRow = {
+  id_metodo: number;
+  nombre_metodo: string | null;
+};
+
+// Head enriquecido con nombres
+export type OrderHead = OrderHeadRow & {
+  status: string | null;          // nombre del status
+  nombre_colonia: string | null;  // nombre de la colonia
+  usuario: string | null;         // nombre completo del dueño de la orden
+  metodo_pago: string | null;     // nombre del método de pago
+};
+
+// Activity enriquecido con nombre de status
+export type OrderActivity = OrderActivityRow & {
+  status: string | null;          // nombre del status
+};
+
+export type FullOrderByIdResult = {
+  head: OrderHead;
+  det: OrderDetailRow[];
+  activity: OrderActivity[];
+};
+
+/* =========================================================================
+   Helpers
+   ========================================================================= */
+
 function computeTotals(
   items: OrderDetailInput[],
   isv = 0,
@@ -139,7 +232,7 @@ export async function createOrderAction(
     // Agrupar cantidades por producto:
     const itemsComp = compactItems(input.items);
 
-    // 👉 Llama el RPC que descuenta stock validando que alcance (ver SQL abajo)
+    // 👉 Llama el RPC que descuenta stock validando que alcance
     const { data: decOk, error: decErr } = await supabase.rpc(
       "rpc_adjust_stock", // nombre del RPC recomendado
       { p_items: itemsComp, p_sign: -1 } // -1 = restar, +1 = sumar
@@ -155,6 +248,7 @@ export async function createOrderAction(
       id_status: input.id_status,
       usuario_actualiza: input.usuario_actualiza ?? null,
       observacion: input.actividad_observacion ?? input.observacion ?? null,
+      // fecha_actualizacion la puede poner la DB por default / trigger
     };
 
     const { data: actData, error: actErr } = await supabase
@@ -186,64 +280,11 @@ export async function createOrderAction(
     }
     throw new Error(`No se pudo crear la orden: ${e?.message ?? String(e)}`);
   }
-
 }
 
-// Lo que devuelve la tabla de órdenes (sin joins)
-export type OrderHeadRow = {
-  id_order: number;
-  uid: string; // UUID del usuario
-  id_status: number | null;
-  id_metodo: number | null;          // 👈 FK a tbl_metodos_pago
-  id_colonia: number | null;
-  id_max_log: number | null;
-  qty: number;
-  sub_total: number;
-  isv: number;
-  delivery: number;
-  ajuste: number;
-  total: number;
-  num_factura: string | null;
-  rtn: string | null;
-  latitud: string | null;
-  longitud: string | null;
-  observacion: string | null;
-  usuario_actualiza: string | null;
-  fecha_creacion: string;
-};
-
-// Catálogo de status
-export type StatusRow = {
-  id_status: number;
-  nombre: string | null;
-};
-
-// Catálogo de colonias
-export type ColoniaRow = {
-  id_colonia: number;
-  nombre_colonia: string | null;
-};
-
-// Catálogo de usuarios
-export type UsuarioRow = {
-  id: string; // UUID (string)
-  nombre: string | null;
-  apellido: string | null;
-};
-
-// Catálogo de métodos de pago
-export type MetodoPagoRow = {
-  id_metodo: number;
-  nombre_metodo: string | null;
-};
-
-// Lo que usas en el frontend (respuesta final)
-export type OrderHead = OrderHeadRow & {
-  status: string | null;
-  nombre_colonia: string | null;
-  usuario: string | null;      // nombre completo del usuario dueño de la orden
-  metodo_pago: string | null;  // nombre del método de pago
-};
+/* =========================================================================
+   Acción: listado de órdenes (encabezados con joins)
+   ========================================================================= */
 
 export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -383,6 +424,10 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   return result;
 }
 
+/* =========================================================================
+   Acción: rechazar orden (devolver stock + log)
+   ========================================================================= */
+
 export async function rejectOrderAction(params: {
   id_order: number;
   observacion: string;
@@ -408,7 +453,7 @@ export async function rejectOrderAction(params: {
     throw new Error("La orden no tiene detalle asociado.");
   }
 
-  // 2) Agrupar cantidades por producto (por si algún producto está repetido)
+  // 2) Agrupar cantidades por producto
   const map = new Map<number, number>();
   for (const row of detRows as { id_producto: number; qty: number }[]) {
     const current = map.get(row.id_producto) ?? 0;
@@ -420,7 +465,7 @@ export async function rejectOrderAction(params: {
     qty,
   }));
 
-  // 3) Devolver stock: usamos el mismo RPC pero con p_sign = +1 (sumar al stock)
+  // 3) Devolver stock
   const { data: incOk, error: incErr } = await supabase.rpc(
     "rpc_adjust_stock",
     { p_items: itemsComp, p_sign: 1 } // +1 = sumar stock
@@ -443,7 +488,7 @@ export async function rejectOrderAction(params: {
       id_status: 6,
       observacion,
       usuario_actualiza: usuario_actualiza ?? "admin",
-      fecha_actualizacion: nowIso, // 👈 actualizar fecha_actualizacion
+      fecha_actualizacion: nowIso,
     })
     .eq("id_order", id_order);
 
@@ -458,7 +503,7 @@ export async function rejectOrderAction(params: {
     id_order,
     id_status: 6,
     fecha_actualizacion: nowIso,
-    usuario_actualiza: "admin",
+    usuario_actualiza: usuario_actualiza ?? "admin",
     observacion,
   };
 
@@ -489,4 +534,127 @@ export async function rejectOrderAction(params: {
       );
     }
   }
+}
+
+/* =========================================================================
+   Acción: obtener TODO de una orden por id (head + det + activity)
+   ========================================================================= */
+
+export async function getOrderByIdAction(
+  id_order: number
+): Promise<FullOrderByIdResult | null> {
+  if (!id_order) {
+    throw new Error("Falta id_order para obtener la orden.");
+  }
+
+  // 1) Traer head, det y activity en paralelo
+  const [headResp, detResp, actResp] = await Promise.all([
+    supabase
+      .from("tbl_orders_head")
+      .select(
+        "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion"
+      )
+      .eq("id_order", id_order)
+      .single(),
+    supabase
+      .from("tbl_orders_det")
+      .select("id_det,id_order,id_producto,qty,precio,id_bodega,sub_total")
+      .eq("id_order", id_order)
+      .order("id_det", { ascending: true }),
+    supabase
+      .from("tbl_activity_orders")
+      .select(
+        "id_act,id_order,id_status,fecha_actualizacion,usuario_actualiza,observacion"
+      )
+      .eq("id_order", id_order)
+      .order("id_act", { ascending: false }),
+  ]);
+
+  if (headResp.error) {
+    if (headResp.error.code === "PGRST116") {
+      // no encontró filas
+      return null;
+    }
+    throw new Error(`Error al obtener encabezado: ${headResp.error.message}`);
+  }
+
+  if (detResp.error) {
+    throw new Error(`Error al obtener detalle: ${detResp.error.message}`);
+  }
+
+  if (actResp.error) {
+    throw new Error(`Error al obtener actividad: ${actResp.error.message}`);
+  }
+
+  const headRow = headResp.data as OrderHeadRow;
+  const det = (detResp.data ?? []) as OrderDetailRow[];
+  const activityRows = (actResp.data ?? []) as OrderActivityRow[];
+
+  // 2) Catálogos
+  const [statusResp, coloniasResp, usuariosResp, metodosResp] = await Promise.all([
+    supabase.from("tbl_status_orders").select("id_status,nombre"),
+    supabase.from("tbl_colonias").select("id_colonia,nombre_colonia"),
+    supabase.from("tbl_usuarios").select("id,nombre,apellido"),
+    supabase.from("tbl_metodos_pago").select("id_metodo,nombre_metodo"),
+  ]);
+
+  const statuses = (statusResp.data ?? []) as StatusRow[];
+  const colonias = (coloniasResp.data ?? []) as ColoniaRow[];
+  const usuarios = (usuariosResp.data ?? []) as UsuarioRow[];
+  const metodos = (metodosResp.data ?? []) as MetodoPagoRow[];
+
+  // 3) Maps
+  const statusMap = new Map<number, string | null>();
+  statuses.forEach((s) => statusMap.set(s.id_status, s.nombre ?? null));
+
+  const coloniaMap = new Map<number, string | null>();
+  colonias.forEach((c) => coloniaMap.set(c.id_colonia, c.nombre_colonia ?? null));
+
+  const usuarioMap = new Map<string, string | null>();
+  usuarios.forEach((u) => {
+    const fullName = [u.nombre, u.apellido].filter(Boolean).join(" ").trim();
+    usuarioMap.set(u.id, fullName || null);
+  });
+
+  const metodoPagoMap = new Map<number, string | null>();
+  metodos.forEach((m) => metodoPagoMap.set(m.id_metodo, m.nombre_metodo ?? null));
+
+  // 4) Head enriquecido
+  const statusNombre =
+    headRow.id_status != null ? statusMap.get(headRow.id_status) ?? null : null;
+
+  const nombre_colonia =
+    headRow.id_colonia != null ? coloniaMap.get(headRow.id_colonia) ?? null : null;
+
+  const usuario =
+    headRow.uid != null && headRow.uid !== ""
+      ? usuarioMap.get(headRow.uid) ?? null
+      : null;
+
+  const metodo_pago =
+    headRow.id_metodo != null ? metodoPagoMap.get(headRow.id_metodo) ?? null : null;
+
+  const head: OrderHead = {
+    ...headRow,
+    status: statusNombre,
+    nombre_colonia,
+    usuario,
+    metodo_pago,
+  };
+
+  // 5) Activity enriquecida
+  const activity: OrderActivity[] = activityRows.map((act) => {
+    const statusNombreAct =
+      act.id_status != null ? statusMap.get(act.id_status) ?? null : null;
+    return {
+      ...act,
+      status: statusNombreAct,
+    };
+  });
+
+  return {
+    head,
+    det,
+    activity,
+  };
 }

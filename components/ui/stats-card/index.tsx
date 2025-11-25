@@ -1,4 +1,5 @@
-"use client";
+// 👈 Quita esta línea si la tienes:
+// "use client";
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
@@ -38,4 +39,3 @@ export function StatsCard({ title, value, Icon, href }: StatsCardProps) {
     </div>
   );
 }
-

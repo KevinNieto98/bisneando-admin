@@ -12,7 +12,7 @@ type Orden = {
   id_orden: string;
   uid: string;
   productos: number;
-  fecha_creacion: string; // ISO
+  fecha_creacion: string;
   fecha_actualizacion?: string | null;
   total: number;
   colonia: string;
@@ -23,7 +23,6 @@ type Orden = {
   uiStatus: StatusUI;
 };
 
-// Formato Lempiras (HNL)
 const formatoMoneda = (n: number) =>
   new Intl.NumberFormat("es-HN", {
     style: "currency",
@@ -32,7 +31,6 @@ const formatoMoneda = (n: number) =>
 
 const formatoFecha = (iso: string) => new Date(iso).toLocaleString();
 
-// Lógica de estados
 const mapStatus = (id_status: number): StatusUI => {
   if (id_status === 1) return "nueva";
   if (id_status >= 2 && id_status <= 4) return "proceso";
@@ -40,7 +38,6 @@ const mapStatus = (id_status: number): StatusUI => {
   return "finalizada";
 };
 
-// Mapper desde la API
 const mapOrderHeadToOrden = (o: OrderHead): Orden => {
   const id_status = o.id_status ?? 1;
   return {
@@ -48,7 +45,6 @@ const mapOrderHeadToOrden = (o: OrderHead): Orden => {
     uid: o.uid,
     productos: o.qty,
     fecha_creacion: o.fecha_creacion ?? new Date().toISOString(),
-    // asegúrate de incluir fecha_actualizacion en el select de la API
     fecha_actualizacion: (o as any).fecha_actualizacion ?? null,
     total: o.total,
     colonia: o.nombre_colonia ?? "Sin colonia",
@@ -60,7 +56,6 @@ const mapOrderHeadToOrden = (o: OrderHead): Orden => {
   };
 };
 
-// Tiempo en bandeja (ms → texto amigable)
 const formatDuration = (ms: number): string => {
   if (ms < 0) ms = 0;
   const totalMinutes = Math.floor(ms / 60000);
@@ -73,14 +68,12 @@ const formatDuration = (ms: number): string => {
   return `${minutes} min`;
 };
 
-// ¿Es mayor a 1 día?
 const isOlderThanOneDay = (iso?: string | null) => {
   if (!iso) return false;
   const t = new Date(iso).getTime();
   return Date.now() - t > 24 * 60 * 60 * 1000;
 };
 
-// yyyy-MM para agrupar por mes
 const getMonthKey = (iso: string) => {
   const d = new Date(iso);
   const y = d.getFullYear();
@@ -92,31 +85,19 @@ const monthLabelEs = (key: string) => {
   const [y, m] = key.split("-");
   const monthNum = Number(m) - 1;
   const meses = [
-    "Enero",
-    "Febrero",
-    "Marzo",
-    "Abril",
-    "Mayo",
-    "Junio",
-    "Julio",
-    "Agosto",
-    "Septiembre",
-    "Octubre",
-    "Noviembre",
-    "Diciembre",
+    "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
   ];
   const nombreMes = meses[monthNum] ?? key;
   return `${nombreMes} ${y}`;
 };
 
-// Ordenar por fecha actualizada (más nueva primero)
 const sortByUpdatedNewest = (a: Orden, b: Orden) => {
   const ta = new Date(a.fecha_actualizacion ?? a.fecha_creacion).getTime();
   const tb = new Date(b.fecha_actualizacion ?? b.fecha_creacion).getTime();
   return tb - ta;
 };
 
-// Helpers estado finalizado
 const esRechazada = (o: Orden) => o.id_status === 6;
 const esCompletada = (o: Orden) => o.id_status === 5;
 
@@ -127,22 +108,16 @@ export function PageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // filtros
   const [query, setQuery] = useState("");
-  const currentMonthKey = useMemo(
-    () => getMonthKey(new Date().toISOString()),
-    []
-  );
+  const currentMonthKey = useMemo(() => getMonthKey(new Date().toISOString()), []);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todas");
 
   const [now, setNow] = useState<number | null>(null);
 
-  // Paginación
   const PAGE_SIZE = 20;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // cargar órdenes
   useEffect(() => {
     const load = async () => {
       try {
@@ -160,24 +135,19 @@ export function PageContent() {
     load();
   }, []);
 
-  // timer para tiempo en bandeja
   useEffect(() => {
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(id);
   }, []);
 
-  // columnas
   const columnas: Column<Orden>[] = useMemo(
     () => [
       {
         header: "ID Orden",
         align: "left",
         cell: (r) => (
-          <Link
-            href={`/ordenes/${r.id_orden}`}
-            className="text-neutral-900 underline hover:opacity-80"
-          >
+          <Link href={`/ordenes/${r.id_orden}`} className="text-neutral-900 underline">
             {r.id_orden}
           </Link>
         ),
@@ -186,11 +156,7 @@ export function PageContent() {
       {
         header: "Fecha creación",
         align: "center",
-        cell: (r) => (
-          <span className="whitespace-nowrap">
-            {formatoFecha(r.fecha_creacion)}
-          </span>
-        ),
+        cell: (r) => <span className="whitespace-nowrap">{formatoFecha(r.fecha_creacion)}</span>,
       },
       {
         header: "Fecha actualización",
@@ -207,9 +173,7 @@ export function PageContent() {
       {
         header: "Total",
         align: "right",
-        cell: (r) => (
-          <span className="font-medium">{formatoMoneda(r.total)}</span>
-        ),
+        cell: (r) => <span className="font-medium">{formatoMoneda(r.total)}</span>,
       },
       { header: "Colonia", align: "left", cell: (r) => r.colonia },
       { header: "Usuario", align: "left", cell: (r) => r.usuario },
@@ -227,8 +191,7 @@ export function PageContent() {
         align: "center",
         cell: (r) => {
           if (!now) return "--";
-          const createdAt = new Date(r.fecha_creacion).getTime();
-          const diff = now - createdAt;
+          const diff = now - new Date(r.fecha_creacion).getTime();
           return (
             <span className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-medium text-neutral-700">
               {formatDuration(diff)}
@@ -240,14 +203,14 @@ export function PageContent() {
         header: "Estado",
         align: "center",
         cell: (r) => {
-          const baseClasses =
+          const base =
             "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ";
-          const classes = esRechazada(r)
+          const cls = esRechazada(r)
             ? "bg-red-100 text-red-800"
             : esCompletada(r)
             ? "bg-emerald-100 text-emerald-800"
             : "bg-amber-100 text-amber-800";
-          return <span className={baseClasses + classes}>{r.status}</span>;
+          return <span className={base + cls}>{r.status}</span>;
         },
       },
     ],
@@ -256,7 +219,6 @@ export function PageContent() {
 
   const getRowId = (r: Orden) => r.id_orden;
 
-  // Meses disponibles
   const monthOptions = useMemo(() => {
     const set = new Set<string>();
 
@@ -268,15 +230,13 @@ export function PageContent() {
     });
 
     const arr = Array.from(set);
-    arr.sort((a, b) => (a < b ? 1 : -1)); // más recientes primero
+    arr.sort((a, b) => (a < b ? 1 : -1));
 
-    // asegurar el mes actual como opción
     if (!arr.includes(currentMonthKey)) arr.unshift(currentMonthKey);
 
     return arr;
   }, [ordenes, currentMonthKey]);
 
-  // filtros
   const filtraTexto = (o: Orden) => {
     if (!query) return true;
     const q = query.toLowerCase();
@@ -287,10 +247,8 @@ export function PageContent() {
     );
   };
 
-  const filtraMes = (o: Orden) => {
-    const base = o.fecha_actualizacion ?? o.fecha_creacion;
-    return getMonthKey(base) === selectedMonth;
-  };
+  const filtraMes = (o: Orden) =>
+    getMonthKey(o.fecha_actualizacion ?? o.fecha_creacion) === selectedMonth;
 
   const filtraEstado = (o: Orden) => {
     if (filtroEstado === "todas") return true;
@@ -299,7 +257,6 @@ export function PageContent() {
     return true;
   };
 
-  // solo finalizadas > 1 día
   const dataFiltrada = useMemo(
     () =>
       ordenes
@@ -315,33 +272,23 @@ export function PageContent() {
     [ordenes, selectedMonth, filtroEstado, query]
   );
 
-  // Ajustar página actual si cambia el total
   const totalPages = Math.max(1, Math.ceil(dataFiltrada.length / PAGE_SIZE));
+
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(1);
-    }
-  }, [currentPage, totalPages]);
+    if (currentPage > totalPages) setCurrentPage(1);
+  }, [totalPages]);
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
     return dataFiltrada.slice(start, start + PAGE_SIZE);
   }, [dataFiltrada, currentPage]);
 
-  // Exportar a "Excel" (CSV)
   const handleExport = () => {
     if (dataFiltrada.length === 0) return;
 
     const headers = [
-      "ID Orden",
-      "Productos",
-      "Fecha creación",
-      "Fecha actualización",
-      "Total",
-      "Colonia",
-      "Usuario",
-      "Método de pago",
-      "Estado",
+      "ID Orden","Productos","Fecha creación","Fecha actualización",
+      "Total","Colonia","Usuario","Método de pago","Estado",
     ];
 
     const rows = dataFiltrada.map((o) => [
@@ -356,30 +303,16 @@ export function PageContent() {
       o.status,
     ]);
 
-    const csvContent =
-      [headers, ...rows]
-        .map((row) =>
-          row
-            .map((field) => {
-              const f = String(field ?? "");
-              // Escapar comillas y separar con ;
-              const escaped = f.replace(/"/g, '""');
-              return `"${escaped}"`;
-            })
-            .join(";")
-        )
-        .join("\n");
+    const csv = [headers, ...rows]
+      .map((row) => row.map((f) => `"${String(f ?? "").replace(/"/g, '""')}"`).join(";"))
+      .join("\n");
 
-    const blob = new Blob([csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "historico_ordenes_finalizadas.csv";
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
@@ -398,7 +331,6 @@ export function PageContent() {
       {/* Toolbar */}
       <section className="rounded-2xl border border-neutral-200 bg-white p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          {/* Buscador */}
           <div className="relative w-full md:max-w-md">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
             <input
@@ -412,9 +344,7 @@ export function PageContent() {
             />
           </div>
 
-          {/* Filtros / acciones */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Filtro de mes */}
             <select
               value={selectedMonth}
               onChange={(e) => {
@@ -430,7 +360,6 @@ export function PageContent() {
               ))}
             </select>
 
-            {/* Filtro de estado */}
             <div className="inline-flex rounded-xl border border-neutral-300 p-1">
               <button
                 type="button"
@@ -446,6 +375,7 @@ export function PageContent() {
               >
                 Todas
               </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -460,6 +390,7 @@ export function PageContent() {
               >
                 Rechazadas
               </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -476,13 +407,11 @@ export function PageContent() {
               </button>
             </div>
 
-            {/* Exportar */}
             <button
               type="button"
               onClick={handleExport}
               className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
               disabled={dataFiltrada.length === 0}
-              title="Exportar a Excel (CSV)"
             >
               <Download className="h-4 w-4" />
               Exportar
@@ -491,24 +420,34 @@ export function PageContent() {
         </div>
       </section>
 
-      {loading && <p className="text-sm text-neutral-500">Cargando órdenes…</p>}
+      {/* SPINNER CENTRADO */}
+      {loading && (
+        <div className="flex justify-center items-center py-10">
+          <div className="flex items-center gap-3 text-sm text-neutral-500">
+            <span className="inline-block h-5 w-5 rounded-full border-2 border-neutral-300 border-t-neutral-900 animate-spin" />
+            Cargando órdenes…
+          </div>
+        </div>
+      )}
+
       {error && !loading && (
         <p className="text-sm text-red-600">Error: {error}</p>
       )}
 
-      <section>
-        <Table
-          data={paginatedData}
-          columns={columnas}
-          getRowId={getRowId}
-          emptyText="No hay órdenes finalizadas en el criterio seleccionado."
-          ariaLabel="Tabla histórico órdenes finalizadas"
-          className="bg-white"
-        />
-      </section>
+      {!loading && (
+        <section>
+          <Table
+            data={paginatedData}
+            columns={columnas}
+            getRowId={getRowId}
+            emptyText="No hay órdenes finalizadas en el criterio seleccionado."
+            ariaLabel="Tabla histórico órdenes finalizadas"
+            className="bg-white"
+          />
+        </section>
+      )}
 
-      {/* Paginación */}
-      {dataFiltrada.length > 0 && (
+      {!loading && dataFiltrada.length > 0 && (
         <div className="mt-2 flex justify-center">
           <Pagination
             totalPages={totalPages}

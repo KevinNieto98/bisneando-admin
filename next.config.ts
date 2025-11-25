@@ -5,6 +5,16 @@ const nextConfig: NextConfig = {
     // ❗ No falle el build por ESLint (solo en CI/producción)
     ignoreDuringBuilds: true,
   },
+    images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "zpvrlltzujenjqbjewni.supabase.co",
+        pathname: "/storage/v1/object/public/imagenes_productos/**",
+      },
+    ],
+    // Si quieres permitir más dominios luego, los agregas aquí
+  },
 
   /* config options here */
   devIndicators:false,

@@ -1,4 +1,4 @@
-import { createOrderAction, CreateOrderInput } from "@/app/(admin)/ordenes/actions";
+import { createOrderAction, CreateOrderInput, getOrdersHeadAction } from "@/app/(admin)/ordenes/actions";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -78,5 +78,49 @@ export async function POST(req: Request) {
     console.error(`[${reqId}] POST /api/orders error:`, err);
     const message = err?.message || String(err) || "Error inesperado creando la orden.";
     return NextResponse.json({ message, reqId }, { status: 500 });
+  }
+}
+
+
+export async function GET(req: Request) {
+  const reqId = `ordhead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const uid = searchParams.get("uid");
+
+    // 🔥 UID obligatorio
+    if (!uid || uid.trim() === "") {
+      return NextResponse.json(
+        {
+          message: "Debe enviar el parámetro 'uid'.",
+          reqId,
+        },
+        { status: 400 }
+      );
+    }
+
+    const data = await getOrdersHeadAction(uid);
+
+    return NextResponse.json(
+      {
+        message: "Órdenes obtenidas correctamente.",
+        data,
+        reqId,
+      },
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error(`[${reqId}] GET /api/orders/head error:`, err);
+    const message =
+      err?.message || String(err) || "Error inesperado obteniendo órdenes.";
+
+    return NextResponse.json(
+      {
+        message,
+        reqId,
+      },
+      { status: 500 }
+    );
   }
 }

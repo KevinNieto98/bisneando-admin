@@ -65,15 +65,7 @@ export type OrderHeadRow = {
   fecha_actualizacion?: string | null;
 };
 
-export type OrderDetailRow = {
-  id_det: number;
-  id_order: number;
-  id_producto: number;
-  qty: number;
-  precio: number;
-  sub_total: number;
-  id_bodega: number | null;
-};
+
 
 export type OrderActivityRow = {
   id_act: number;
@@ -286,7 +278,7 @@ export async function createOrderAction(
    Acción: listado de órdenes (encabezados con joins)
    ========================================================================= */
 
-export async function getOrdersHeadAction(): Promise<OrderHead[]> {
+export async function getOrdersHeadAction(uid?: string): Promise<OrderHead[]> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
@@ -305,9 +297,17 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   const selectUsuarios = "id,nombre,apellido";
   const selectMetodos = "id_metodo,nombre_metodo";
 
-  const ordersUrl = `${base}/rest/v1/tbl_orders_head?select=${encodeURIComponent(
-    selectOrders
-  )}&order=id_order.desc`;
+  // 👇 armamos el query de órdenes usando URLSearchParams para poder agregar uid condicionalmente
+  const ordersParams = new URLSearchParams();
+  ordersParams.set("select", selectOrders);
+  ordersParams.set("order", "id_order.desc");
+
+  // si viene uid, filtramos por ese uid
+  if (uid && uid.trim() !== "") {
+    ordersParams.set("uid", `eq.${uid}`);
+  }
+
+  const ordersUrl = `${base}/rest/v1/tbl_orders_head?${ordersParams.toString()}`;
 
   const statusUrl = `${base}/rest/v1/tbl_status_orders?select=${encodeURIComponent(
     selectStatus
@@ -325,28 +325,29 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
     selectMetodos
   )}`;
 
-  const [ordersRes, statusRes, coloniasRes, usuariosRes, metodosRes] = await Promise.all([
-    fetch(ordersUrl, {
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    }),
-    fetch(statusUrl, {
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    }),
-    fetch(coloniasUrl, {
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    }),
-    fetch(usuariosUrl, {
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    }),
-    fetch(metodosUrl, {
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
-      cache: "no-store",
-    }),
-  ]);
+  const [ordersRes, statusRes, coloniasRes, usuariosRes, metodosRes] =
+    await Promise.all([
+      fetch(ordersUrl, {
+        headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      }),
+      fetch(statusUrl, {
+        headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      }),
+      fetch(coloniasUrl, {
+        headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      }),
+      fetch(usuariosUrl, {
+        headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      }),
+      fetch(metodosUrl, {
+        headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      }),
+    ]);
 
   if (!ordersRes.ok) {
     console.error("Error al obtener órdenes:", ordersRes.status, await ordersRes.text());
@@ -385,18 +386,15 @@ export async function getOrdersHeadAction(): Promise<OrderHead[]> {
   const coloniaMap = new Map<number, string | null>();
   colonias.forEach((c) => coloniaMap.set(c.id_colonia, c.nombre_colonia ?? null));
 
-  // join por id STRING (UUID)
   const usuarioMap = new Map<string, string | null>();
   usuarios.forEach((u) => {
     const fullName = [u.nombre, u.apellido].filter(Boolean).join(" ").trim();
     usuarioMap.set(u.id, fullName || null);
   });
 
-  // join por id_metodo
   const metodoPagoMap = new Map<number, string | null>();
   metodos.forEach((m) => metodoPagoMap.set(m.id_metodo, m.nombre_metodo ?? null));
 
-  // 🔥 Aplanamos la respuesta
   const result: OrderHead[] = orders.map((row) => {
     const status =
       row.id_status != null ? statusMap.get(row.id_status) ?? null : null;
@@ -539,7 +537,6 @@ export async function rejectOrderAction(params: {
 /* =========================================================================
    Acción: obtener TODO de una orden por id (head + det + activity)
    ========================================================================= */
-
 export async function getOrderByIdAction(
   id_order: number
 ): Promise<FullOrderByIdResult | null> {
@@ -587,7 +584,7 @@ export async function getOrderByIdAction(
   }
 
   const headRow = headResp.data as OrderHeadRow;
-  const det = (detResp.data ?? []) as OrderDetailRow[];
+  const detRows = (detResp.data ?? []) as OrderDetailRow[];
   const activityRows = (actResp.data ?? []) as OrderActivityRow[];
 
   // 2) Catálogos
@@ -603,7 +600,7 @@ export async function getOrderByIdAction(
   const usuarios = (usuariosResp.data ?? []) as UsuarioRow[];
   const metodos = (metodosResp.data ?? []) as MetodoPagoRow[];
 
-  // 3) Maps
+  // 3) Maps de catálogos
   const statusMap = new Map<number, string | null>();
   statuses.forEach((s) => statusMap.set(s.id_status, s.nombre ?? null));
 
@@ -642,7 +639,71 @@ export async function getOrderByIdAction(
     metodo_pago,
   };
 
-  // 5) Activity enriquecida
+  // 5) Traer nombre_producto + 1 imagen por producto para los detalles
+  let det: OrderDetailWithProducto[] = detRows as OrderDetailWithProducto[];
+
+  const productIds = Array.from(
+    new Set(
+      detRows
+        .map((d) => d.id_producto)
+        .filter((id): id is number => typeof id === "number")
+    )
+  );
+
+  if (productIds.length > 0) {
+    const [prodResp, imgResp] = await Promise.all([
+      supabase
+        .from("tbl_productos")
+        .select("id_producto,nombre_producto")
+        .in("id_producto", productIds),
+      supabase
+        .from("tbl_imagenes_producto")
+        .select("id_producto,url_imagen,is_principal,orden")
+        .in("id_producto", productIds)
+        // primero las principales, luego por orden asc
+        .order("is_principal", { ascending: false })
+        .order("orden", { ascending: true }),
+    ]);
+
+    if (prodResp.error) {
+      throw new Error(
+        `Error al obtener productos para detalles: ${prodResp.error.message}`
+      );
+    }
+
+    if (imgResp.error) {
+      throw new Error(
+        `Error al obtener imágenes para productos: ${imgResp.error.message}`
+      );
+    }
+
+    const productos = (prodResp.data ?? []) as { id_producto: number; nombre_producto: string }[];
+    const imgs = (imgResp.data ?? []) as {
+      id_producto: number;
+      url_imagen: string;
+      is_principal?: boolean | null;
+      orden?: number | null;
+    }[];
+
+    const nombreProdMap = new Map<number, string>();
+    productos.forEach((p) => nombreProdMap.set(p.id_producto, p.nombre_producto));
+
+    // elegir SOLO UNA imagen por producto: la primera según el orden aplicado arriba
+    const imgPorProducto = new Map<number, string>();
+    for (const img of imgs) {
+      if (!imgPorProducto.has(img.id_producto)) {
+        imgPorProducto.set(img.id_producto, img.url_imagen);
+      }
+    }
+
+    det = detRows.map((d) => ({
+      ...d,
+      nombre_producto: nombreProdMap.get(d.id_producto) ?? null,
+      url_imagen: imgPorProducto.get(d.id_producto) ?? null,
+    }));
+  }
+
+  // 6) Activity enriquecida
   const activity: OrderActivity[] = activityRows.map((act) => {
     const statusNombreAct =
       act.id_status != null ? statusMap.get(act.id_status) ?? null : null;
@@ -657,4 +718,90 @@ export async function getOrderByIdAction(
     det,
     activity,
   };
+}
+
+type OrderDetailRow = {
+  url_imagen: string | null ;
+  id_det: number;
+  id_order: number;
+  id_producto: number;
+  qty: number;
+  precio: number;
+  id_bodega: number;
+  sub_total: number;
+};
+
+type OrderDetailWithProducto = OrderDetailRow & {
+  nombre_producto: string | null;
+  url_imagen: string | null;
+};
+
+
+
+// 👇 Tipo de respuesta para el resumen de hoy
+export type TodayOrdersSummary = {
+  nuevas: number;
+  en_proceso: number;
+  finalizadas: number;
+  total: number;
+};
+
+// 👇 Ya tienes aquí tus otras acciones (createOrderAction, etc.)
+// ... (tu código previo)
+
+// 📌 Nueva acción: resumen de órdenes del día de hoy
+export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary> {
+  // Calculamos inicio y fin del día de hoy en UTC (ajusta si usas otra zona)
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+  const isoStart = start.toISOString();
+  const isoEnd = end.toISOString();
+
+  const [nuevasRes, procesoRes, finalRes] = await Promise.all([
+    supabase
+      .from("tbl_orders_head")
+      .select("id_order", { count: "exact", head: true })
+      .eq("id_status", 1)
+      .gte("fecha_creacion", isoStart)
+      .lt("fecha_creacion", isoEnd),
+
+    supabase
+      .from("tbl_orders_head")
+      .select("id_order", { count: "exact", head: true })
+      .in("id_status", [2, 3, 4])
+      .gte("fecha_creacion", isoStart)
+      .lt("fecha_creacion", isoEnd),
+
+    supabase
+      .from("tbl_orders_head")
+      .select("id_order", { count: "exact", head: true })
+      .in("id_status", [5, 6])
+      .gte("fecha_creacion", isoStart)
+      .lt("fecha_creacion", isoEnd),
+  ]);
+
+  if (nuevasRes.error) {
+    throw new Error(
+      `Error al contar órdenes nuevas: ${nuevasRes.error.message}`
+    );
+  }
+  if (procesoRes.error) {
+    throw new Error(
+      `Error al contar órdenes en proceso: ${procesoRes.error.message}`
+    );
+  }
+  if (finalRes.error) {
+    throw new Error(
+      `Error al contar órdenes finalizadas: ${finalRes.error.message}`
+    );
+  }
+
+  const nuevas = nuevasRes.count ?? 0;
+  const en_proceso = procesoRes.count ?? 0;
+  const finalizadas = finalRes.count ?? 0;
+  const total = nuevas + en_proceso + finalizadas;
+
+  return { nuevas, en_proceso, finalizadas, total };
 }

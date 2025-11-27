@@ -11,7 +11,21 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const reqId = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   try {
-    const body = (await req.json().catch(() => ({}))) as Partial<CreateOrderInput>;
+    const body = (await req.json().catch(() => ({}))) as Partial<CreateOrderInput> & {
+      direccion?: {
+        latitud?: number;
+        longitud?: number;
+        latitude?: number;
+        longitude?: number;
+        id_direccion?: number;
+        nombre_direccion?: string;
+        referencia?: string;
+      };
+      latitud?: number;
+      longitud?: number;
+    };
+
+    console.log(`[${reqId}] POST /api/orders BODY:`, JSON.stringify(body, null, 2));
 
     // Validaciones mínimas
     if (!body?.id_status || !Array.isArray(body.items) || body.items.length === 0) {
@@ -50,6 +64,25 @@ export async function POST(req: Request) {
       );
     }
 
+    // ========================
+    // Resolver coordenadas
+    // ========================
+    const direccion = body.direccion ?? null;
+
+    const latitud =
+      body.latitud ??
+      direccion?.latitud ??
+      direccion?.latitude ??
+      null;
+
+    const longitud =
+      body.longitud ??
+      direccion?.longitud ??
+      direccion?.longitude ??
+      null;
+
+    console.log(`[${reqId}] POST /api/orders COORDS RESUELTAS:`, { latitud, longitud });
+
     // Llamar a la Server Action (Supabase)
     const result = await createOrderAction({
       id_status: Number(body.id_status),
@@ -61,14 +94,14 @@ export async function POST(req: Request) {
       ajuste: body.ajuste ?? 0,
       num_factura: body.num_factura ?? null,
       rtn: body.rtn ?? null,
-      latitud: body.latitud ?? null,
-      longitud: body.longitud ?? null,
+      latitud,          // ⬅ ya viene de body.direccion.latitud si existe
+      longitud,         // ⬅ ya viene de body.direccion.longitud si existe
       tipo_dispositivo: body.tipo_dispositivo ?? null,
       observacion: body.observacion ?? null,
       usuario_actualiza: body.usuario_actualiza ?? null,
       // Actividad
       actividad_observacion: body.actividad_observacion ?? null,
-    });
+    } as CreateOrderInput);
 
     return NextResponse.json(
       { message: "Orden creada correctamente.", data: result, reqId },
@@ -80,7 +113,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ message, reqId }, { status: 500 });
   }
 }
-
 
 export async function GET(req: Request) {
   const reqId = `ordhead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

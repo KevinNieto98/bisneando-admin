@@ -153,7 +153,7 @@ function compactItems(items: OrderDetailInput[]) {
    Acción: inserta orden + descuenta stock con RPC
    ========================================================================= */
 export async function createOrderAction(
-  input: CreateOrderInput
+  input: CreateOrderInput & { id_metodo?: number | null; id_colonia?: number | null }
 ): Promise<CreateOrderResult> {
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new Error("La orden debe contener al menos un renglón en 'items'.");
@@ -187,8 +187,14 @@ export async function createOrderAction(
       latitud: input.latitud ?? null,
       longitud: input.longitud ?? null,
       tipo_dispositivo: input.tipo_dispositivo ?? null,
+
+      // 👇 aquí se guarda la observación de entrega en tbl_orders_head.observacion
       observacion: input.observacion ?? null,
       usuario_actualiza: input.usuario_actualiza ?? null,
+
+      // 🆕 campos nuevos en el header (asegúrate que existan en tbl_orders_head)
+      id_metodo: input.id_metodo ?? null,
+      id_colonia: input.id_colonia ?? null,
     };
 
     const { data: head, error: headErr } = await supabase
@@ -221,13 +227,11 @@ export async function createOrderAction(
     const det_count = detData?.length ?? 0;
 
     /* 3) Descuento de stock (ATÓMICO en DB vía RPC) */
-    // Agrupar cantidades por producto:
     const itemsComp = compactItems(input.items);
 
-    // 👉 Llama el RPC que descuenta stock validando que alcance
     const { data: decOk, error: decErr } = await supabase.rpc(
-      "rpc_adjust_stock", // nombre del RPC recomendado
-      { p_items: itemsComp, p_sign: -1 } // -1 = restar, +1 = sumar
+      "rpc_adjust_stock",
+      { p_items: itemsComp, p_sign: -1 }
     );
 
     if (decErr) throw new Error(decErr.message);
@@ -273,6 +277,8 @@ export async function createOrderAction(
     throw new Error(`No se pudo crear la orden: ${e?.message ?? String(e)}`);
   }
 }
+
+
 
 /* =========================================================================
    Acción: listado de órdenes (encabezados con joins)

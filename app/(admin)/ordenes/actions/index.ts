@@ -754,8 +754,7 @@ export type TodayOrdersSummary = {
 
 // 👇 Ya tienes aquí tus otras acciones (createOrderAction, etc.)
 // ... (tu código previo)
-
-// 📌 Nueva acción: resumen de órdenes del día de hoy
+// 📌 Nueva acción: resumen de órdenes
 export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary> {
   // Calculamos inicio y fin del día de hoy en UTC (ajusta si usas otra zona)
   const now = new Date();
@@ -766,20 +765,19 @@ export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary>
   const isoEnd = end.toISOString();
 
   const [nuevasRes, procesoRes, finalRes] = await Promise.all([
+    // ✅ NUEVAS: sin restricción de fecha
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })
-      .eq("id_status", 1)
-      .gte("fecha_creacion", isoStart)
-      .lt("fecha_creacion", isoEnd),
+      .eq("id_status", 1),
 
+    // ✅ EN PROCESO: sin restricción de fecha
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })
-      .in("id_status", [2, 3, 4])
-      .gte("fecha_creacion", isoStart)
-      .lt("fecha_creacion", isoEnd),
+      .in("id_status", [2, 3, 4]),
 
+    // ✅ FINALIZADAS: solo las de HOY
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })

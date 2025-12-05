@@ -40,6 +40,7 @@ export function PageContentClient({
     nuevas: summary.nuevas,
     enProceso: summary.en_proceso,
     finalizadas: summary.finalizadas,
+    problemas: summary.problemas,
   };
 
   const hasNoResults = !error && menus.length === 0;

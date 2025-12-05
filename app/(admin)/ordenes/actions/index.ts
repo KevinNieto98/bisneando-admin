@@ -743,18 +743,15 @@ type OrderDetailWithProducto = OrderDetailRow & {
 };
 
 
-
-// 👇 Tipo de respuesta para el resumen de hoy
 export type TodayOrdersSummary = {
   nuevas: number;
   en_proceso: number;
   finalizadas: number;
+  problemas: number;   // 🆕 órdenes con problemas (status 7)
   total: number;
 };
 
-// 👇 Ya tienes aquí tus otras acciones (createOrderAction, etc.)
-// ... (tu código previo)
-// 📌 Nueva acción: resumen de órdenes
+// 📌 Resumen de órdenes de hoy
 export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary> {
   // Calculamos inicio y fin del día de hoy en UTC (ajusta si usas otra zona)
   const now = new Date();
@@ -764,26 +761,34 @@ export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary>
   const isoStart = start.toISOString();
   const isoEnd = end.toISOString();
 
-  const [nuevasRes, procesoRes, finalRes] = await Promise.all([
-    // ✅ NUEVAS: sin restricción de fecha
+  const [nuevasRes, procesoRes, finalRes, problemasRes] = await Promise.all([
+    // ✅ NUEVAS: sin restricción de fecha (status = 1)
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })
       .eq("id_status", 1),
 
-    // ✅ EN PROCESO: sin restricción de fecha
+    // ✅ EN PROCESO: sin restricción de fecha (status 2,3,4)
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })
       .in("id_status", [2, 3, 4]),
 
-    // ✅ FINALIZADAS: solo las de HOY
+    // ✅ FINALIZADAS (entregadas/rechazadas): solo las de HOY (status 5,6)
     supabase
       .from("tbl_orders_head")
       .select("id_order", { count: "exact", head: true })
       .in("id_status", [5, 6])
-      .gte("fecha_creacion", isoStart)
-      .lt("fecha_creacion", isoEnd),
+      .gte("fecha_actualizacion", isoStart)
+      .lt("fecha_actualizacion", isoEnd),
+
+    // ✅ ORDENES CON PROBLEMAS (status 7): solo las de HOY
+    supabase
+      .from("tbl_orders_head")
+      .select("id_order", { count: "exact", head: true })
+      .eq("id_status", 7)
+      .gte("fecha_actualizacion", isoStart)
+      .lt("fecha_actualizacion", isoEnd),
   ]);
 
   if (nuevasRes.error) {
@@ -801,11 +806,202 @@ export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary>
       `Error al contar órdenes finalizadas: ${finalRes.error.message}`
     );
   }
+  if (problemasRes.error) {
+    throw new Error(
+      `Error al contar órdenes con problemas: ${problemasRes.error.message}`
+    );
+  }
 
   const nuevas = nuevasRes.count ?? 0;
   const en_proceso = procesoRes.count ?? 0;
   const finalizadas = finalRes.count ?? 0;
-  const total = nuevas + en_proceso + finalizadas;
+  const problemas = problemasRes.count ?? 0;
 
-  return { nuevas, en_proceso, finalizadas, total };
+  const total = nuevas + en_proceso + finalizadas + problemas;
+
+  return { nuevas, en_proceso, finalizadas, problemas, total };
+}
+
+// =========================================================================
+// Acción: actualizar orden a un status específico (5, 6, 7, etc.)
+// =========================================================================
+
+export async function updateOrderStatusByIdAction(params: {
+  id_order: number;
+  id_status_destino: number;           // <- aquí pasas 5, 6, 7, etc.
+  observacion?: string | null;
+  usuario_actualiza?: string | null;
+}): Promise<{
+  id_order: number;
+  from_status: number;
+  to_status: number;
+  id_act?: number;
+}> {
+  const { id_order, id_status_destino, observacion, usuario_actualiza } = params;
+
+  if (!id_order) {
+    throw new Error("Falta id_order para actualizar la orden.");
+  }
+
+  // 1) Traer encabezado para saber el status actual
+  const { data: head, error: headErr } = await supabase
+    .from("tbl_orders_head")
+    .select("id_order,id_status")
+    .eq("id_order", id_order)
+    .single();
+
+  if (headErr) {
+    throw new Error(
+      `No se pudo obtener la orden para actualizar: ${headErr.message}`
+    );
+  }
+
+  if (head.id_status == null) {
+    throw new Error("La orden no tiene un status actual definido.");
+  }
+
+  const fromStatus = head.id_status as number;
+
+  // 2) Si el destino es 6 (rechazada), usamos la lógica especial que ya tienes
+  if (id_status_destino === 6) {
+    // Aquí se devuelve stock, se actualiza head, activity e id_max_log
+    await rejectOrderAction({
+      id_order,
+      observacion: observacion ?? "Orden rechazada",
+      usuario_actualiza: usuario_actualiza ?? "admin",
+    });
+
+    return {
+      id_order,
+      from_status: fromStatus,
+      to_status: 6,
+    };
+  }
+
+  // 3) Para otros estados (5 terminada, 7 problemas, etc.) actualizamos directo
+
+  const nowIso = new Date().toISOString();
+  const usuario = usuario_actualiza ?? "admin";
+  const obs = observacion ?? null;
+
+  // 3.1) Actualizar encabezado
+  const { error: upErr } = await supabase
+    .from("tbl_orders_head")
+    .update({
+      id_status: id_status_destino,
+      observacion: obs,
+      usuario_actualiza: usuario,
+      fecha_actualizacion: nowIso,
+    })
+    .eq("id_order", id_order);
+
+  if (upErr) {
+    throw new Error(
+      `No se pudo actualizar el encabezado de la orden: ${upErr.message}`
+    );
+  }
+
+  // 3.2) Insertar actividad
+  const actividadRow = {
+    id_order,
+    id_status: id_status_destino,
+    fecha_actualizacion: nowIso,
+    usuario_actualiza: usuario,
+    observacion: obs,
+  };
+
+  const { data: actData, error: actErr } = await supabase
+    .from("tbl_activity_orders")
+    .insert([actividadRow])
+    .select("id_act")
+    .single();
+
+  if (actErr) {
+    throw new Error(
+      `No se pudo insertar la actividad de actualización: ${actErr.message}`
+    );
+  }
+
+  const id_act = actData?.id_act as number | undefined;
+
+  // 3.3) Actualizar id_max_log en el header
+  if (id_act) {
+    const { error: logErr } = await supabase
+      .from("tbl_orders_head")
+      .update({ id_max_log: id_act })
+      .eq("id_order", id_order);
+
+    if (logErr) {
+      throw new Error(
+        `No se pudo actualizar id_max_log de la orden: ${logErr.message}`
+      );
+    }
+  }
+
+  return {
+    id_order,
+    from_status: fromStatus,
+    to_status: id_status_destino,
+    id_act,
+  };
+}
+
+
+export async function advanceOrderToNextStatusAction(params: {
+  id_order: number;
+  observacion: string;
+  usuario_actualiza?: string | null;
+}): Promise<void> {
+  const { id_order, observacion, usuario_actualiza } = params;
+
+  if (!id_order) {
+    throw new Error("Falta id_order para avanzar la orden.");
+  }
+
+  // 1) Obtener status actual de la orden
+  const { data: headRow, error: headErr } = await supabase
+    .from("tbl_orders_head")
+    .select("id_status")
+    .eq("id_order", id_order)
+    .single();
+
+  if (headErr) {
+    throw new Error(
+      `Error al obtener encabezado de la orden para avanzar: ${headErr.message}`
+    );
+  }
+
+  const currentStatus: number | null = headRow?.id_status ?? null;
+  if (currentStatus == null) {
+    throw new Error("La orden no tiene un status actual definido.");
+  }
+
+  // 2) Obtener siguiente status desde tbl_status_orders
+  const { data: statusRow, error: statusErr } = await supabase
+    .from("tbl_status_orders")
+    .select("next_status")
+    .eq("id_status", currentStatus)
+    .single();
+
+  if (statusErr) {
+    throw new Error(
+      `Error al obtener el siguiente status del flujo: ${statusErr.message}`
+    );
+  }
+
+  const nextStatus: number | null = statusRow?.next_status ?? null;
+
+  if (!nextStatus) {
+    throw new Error(
+      "El status actual no tiene un siguiente paso configurado en tbl_status_orders."
+    );
+  }
+
+  // 3) Reusar tu acción genérica para actualizar orden + activity + id_max_log
+  await updateOrderStatusByIdAction({
+    id_order,
+    id_status_destino: nextStatus,
+    observacion,
+    usuario_actualiza: usuario_actualiza ?? "admin",
+  });
 }

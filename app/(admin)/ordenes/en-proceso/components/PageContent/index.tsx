@@ -136,13 +136,14 @@ export function PageContent() {
   const searchParams = useSearchParams();
   const estadoParam = searchParams.get("estado");
 
-  const [tab, setTab] = useState<"nuevas" | "proceso" | "finalizadas">(
-    "proceso"
-  );
+  const [tab, setTab] = useState<
+    "nuevas" | "proceso" | "finalizadas" | "problemas"
+  >("proceso");
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [queryNuevas, setQueryNuevas] = useState("");
   const [queryProceso, setQueryProceso] = useState("");
   const [queryFinal, setQueryFinal] = useState("");
+  const [queryProblemas, setQueryProblemas] = useState("");
   const [filtroEstadoFinal, setFiltroEstadoFinal] =
     useState<FiltroEstado>("todas");
 
@@ -168,6 +169,7 @@ export function PageContent() {
     if (estadoParam === "nueva") setTab("nuevas");
     else if (estadoParam === "finalizada") setTab("finalizadas");
     else if (estadoParam === "proceso") setTab("proceso");
+    else if (estadoParam === "problemas") setTab("problemas");
   }, [estadoParam]);
 
   // cargar órdenes
@@ -364,7 +366,7 @@ export function PageContent() {
     [now]
   );
 
-  // Columnas con Acciones (para nuevas y proceso)
+  // Columnas con Acciones (para nuevas y proceso y problemas)
   const columnasConAcciones: Column<Orden>[] = useMemo(
     () => [
       ...columnasBase,
@@ -448,6 +450,16 @@ export function PageContent() {
     [ordenes, queryProceso]
   );
 
+  // 🔽 Problemas: id_status = 7, mismas funcionalidades que Nuevas/Proceso
+  const dataProblemas = useMemo(
+    () =>
+      ordenes
+        .filter((o) => o.id_status === 7 && coincide(o, queryProblemas))
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, queryProblemas]
+  );
+
   // 🔽 Finalizadas: solo de hoy, más recientes primero (por fecha_actualizacion) + filtro estado
   const dataFinal = useMemo(
     () =>
@@ -523,6 +535,9 @@ export function PageContent() {
   const handleExportProceso = () =>
     exportOrdersToCsv("ordenes_en_proceso.csv", dataProceso);
 
+  const handleExportProblemas = () =>
+    exportOrdersToCsv("ordenes_con_problemas.csv", dataProblemas);
+
   const handleExportFinalizadas = () =>
     exportOrdersToCsv("ordenes_finalizadas_hoy.csv", dataFinal);
 
@@ -537,6 +552,7 @@ export function PageContent() {
           subtitle="Menú de órdenes"
           icon={<ShoppingCart className="h-6 w-6 text-neutral-700" />}
           showBackButton
+          backHref="/ordenes"
         />
       </header>
 
@@ -548,14 +564,15 @@ export function PageContent() {
       <Tabs
         value={tab}
         onValueChange={(v) =>
-          setTab(v as "nuevas" | "proceso" | "finalizadas")
+          setTab(v as "nuevas" | "proceso" | "finalizadas" | "problemas")
         }
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="nuevas">Órdenes Nuevas</TabsTrigger>
           <TabsTrigger value="proceso">Órdenes en Proceso</TabsTrigger>
           <TabsTrigger value="finalizadas">Órdenes Finalizadas</TabsTrigger>
+          <TabsTrigger value="problemas">Órdenes con Problemas</TabsTrigger>
         </TabsList>
 
         {/* NUEVAS */}
@@ -626,6 +643,42 @@ export function PageContent() {
               getRowId={getRowId}
               emptyText="No hay órdenes en proceso"
               ariaLabel="Tabla de órdenes en proceso"
+            />
+          </div>
+        </TabsContent>
+
+        {/* PROBLEMAS (id_status = 7, mismas funcionalidades que Nuevas/Proceso) */}
+        <TabsContent value="problemas">
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-md">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={queryProblemas}
+                  onChange={(e) => setQueryProblemas(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportProblemas}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                disabled={dataProblemas.length === 0}
+                title="Exportar órdenes con problemas"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+            </div>
+
+            <Table
+              data={dataProblemas}
+              columns={columnasConAcciones}
+              getRowId={getRowId}
+              emptyText="No hay órdenes con problemas"
+              ariaLabel="Tabla de órdenes con problemas"
             />
           </div>
         </TabsContent>

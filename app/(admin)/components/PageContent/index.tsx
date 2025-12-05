@@ -11,6 +11,7 @@ export async function PageContent() {
     nuevas: 0,
     en_proceso: 0,
     finalizadas: 0,
+    problemas: 0,
     total: 0,
   };
   let error: string | null = null;

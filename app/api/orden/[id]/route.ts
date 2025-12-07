@@ -1,5 +1,5 @@
 // app/api/orders/[id]/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getOrderByIdAction } from "@/app/(admin)/ordenes/actions";
 
 export const runtime = "nodejs";
@@ -10,15 +10,15 @@ export const dynamic = "force-dynamic";
  * Devuelve head + det + activity enriquecidos para una orden específica.
  */
 export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const reqId = `ordbyid_${Date.now()}_${Math.random()
     .toString(36)
     .slice(2, 8)}`;
 
   try {
-    const rawId = params.id;
+    const { id: rawId } = await params;
     const id_order = Number(rawId);
 
     // Validación básica

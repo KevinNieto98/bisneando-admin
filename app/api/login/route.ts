@@ -29,10 +29,10 @@ export async function OPTIONS(req: NextRequest) {
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  platform: z.enum(["WEB", "APP"]).default("APP"),
+  platform: z.enum(["WEB", "APP", "BODEGA"]).default("APP"),
 });
 
-type Platform = "WEB" | "APP";
+type Platform = "WEB" | "APP" | "BODEGA";
 
 async function getPerfilSeguro(
   supabase: any,
@@ -69,10 +69,11 @@ export async function POST(req: NextRequest) {
     const supabase = await createClient();
 
     // 1) Login
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const { data: signInData, error: signInError } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
     if (signInError) {
       return NextResponse.json(
@@ -99,26 +100,35 @@ export async function POST(req: NextRequest) {
     const user = userData.user;
     const session = signInData.session;
 
-    // 3) Validación por plataforma
+    // 3) Validación por plataforma (APP / WEB / BODEGA)
     const perfil = await getPerfilSeguro(supabase, user.id, user.user_metadata);
-    const requiredPerfil = (platform as Platform) === "APP" ? 1 : 2;
+
+    const requiredPerfilByPlatform: Record<Platform, number> = {
+      APP: 1,
+      WEB: 2,
+      BODEGA: 3,
+    };
+
+    const mensajeErrorByPlatform: Record<Platform, string> = {
+      APP: "Privilegios insuficientes. Se requiere perfil = 1 para APP.",
+      WEB: "Privilegios insuficientes. Se requiere perfil = 2 para WEB.",
+      BODEGA: "Privilegios insuficientes. Se requiere perfil = 3 para BODEGA.",
+    };
+
+    const requiredPerfil = requiredPerfilByPlatform[platform];
 
     if (perfil !== requiredPerfil) {
       await supabase.auth.signOut();
       return NextResponse.json(
         {
           success: false,
-          message:
-            platform === "APP"
-              ? "Privilegios insuficientes. Se requiere perfil = 1 para APP."
-              : "Privilegios insuficientes. Se requiere perfil = 2 para WEB.",
+          message: mensajeErrorByPlatform[platform],
         },
         { status: 403, headers: corsHeaders(origin) }
       );
     }
 
     // 4) OK: devolvemos tokens para hidratar la sesión en la app
-    // ⚠️ Importante: servir SIEMPRE por HTTPS en producción.
     revalidatePath("/", "layout");
     return NextResponse.json(
       {

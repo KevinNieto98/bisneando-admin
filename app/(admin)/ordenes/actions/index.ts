@@ -1005,3 +1005,73 @@ export async function advanceOrderToNextStatusAction(params: {
     usuario_actualiza: usuario_actualiza ?? "admin",
   });
 }
+
+
+
+export type VwOrdersHeadRow = {
+  id_bodega: number | null;
+  id_order: number;
+  cantidad: number | null;
+  total: number | null;
+  uid: string | null;
+  fecha_creacion: string | null;
+  id_status: number | null;
+  status: string | null;
+  nombre_usuario: string | null;
+};
+
+/* =========================================================================
+   Acción: listar órdenes por id_bodega desde la vista VW_ORDERS_HEAD
+   ========================================================================= */
+
+
+export async function getOrdersHeadByBodegaAction(
+  id_bodega: number
+): Promise<VwOrdersHeadRow[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return [];
+  }
+
+  if (!Number.isFinite(id_bodega) || id_bodega <= 0) {
+    console.error("id_bodega inválido:", id_bodega);
+    return [];
+  }
+
+  // IMPORTANTE: en PostgREST/Supabase, usa minúsculas por defecto
+  // Si tu vista realmente se llama distinto, ajusta aquí: vw_orders_head
+  const qs = new URLSearchParams();
+  qs.set(
+    "select",
+    "id_bodega,id_order,cantidad,total,uid,fecha_creacion,id_status,status,nombre_usuario"
+  );
+  qs.set("id_bodega", `eq.${id_bodega}`);
+  qs.set("order", "fecha_creacion.desc,id_order.desc");
+
+  const url = `${base}/rest/v1/vw_orders_head?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error(
+      "Error al obtener órdenes por bodega:",
+      res.status,
+      await res.text()
+    );
+    return [];
+  }
+
+  const data = (await res.json().catch(() => [])) as VwOrdersHeadRow[];
+  return Array.isArray(data) ? data : [];
+}

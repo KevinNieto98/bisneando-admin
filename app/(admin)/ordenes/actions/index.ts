@@ -189,7 +189,7 @@ export async function createOrderAction(
       tipo_dispositivo: input.tipo_dispositivo ?? null,
 
       // 👇 aquí se guarda la observación de entrega en tbl_orders_head.observacion
-      observacion: input.observacion ?? null,
+      instrucciones_entrega: input.observacion ?? null,
       usuario_actualiza: input.usuario_actualiza ?? null,
 
       // 🆕 campos nuevos en el header (asegúrate que existan en tbl_orders_head)
@@ -544,10 +544,19 @@ export async function rejectOrderAction(params: {
    Acción: obtener TODO de una orden por id (head + det + activity)
    ========================================================================= */
 export async function getOrderByIdAction(
-  id_order: number
+  id_order: number,
+  id_bodega?: number
 ): Promise<FullOrderByIdResult | null> {
   if (!id_order) {
     throw new Error("Falta id_order para obtener la orden.");
+  }
+
+  // Validación opcional (recomendado)
+  if (
+    id_bodega !== undefined &&
+    (!Number.isFinite(id_bodega) || id_bodega <= 0)
+  ) {
+    throw new Error("Si envía id_bodega, debe ser un número válido (> 0).");
   }
 
   // 1) Traer head, det y activity en paralelo
@@ -559,11 +568,21 @@ export async function getOrderByIdAction(
       )
       .eq("id_order", id_order)
       .single(),
-    supabase
-      .from("tbl_orders_det")
-      .select("id_det,id_order,id_producto,qty,precio,id_bodega,sub_total")
-      .eq("id_order", id_order)
-      .order("id_det", { ascending: true }),
+
+    // Ajuste: query de detalle con filtro opcional por bodega
+    (() => {
+      let q = supabase
+        .from("tbl_orders_det")
+        .select("id_det,id_order,id_producto,qty,precio,id_bodega,sub_total")
+        .eq("id_order", id_order);
+
+      if (id_bodega !== undefined) {
+        q = q.eq("id_bodega", id_bodega);
+      }
+
+      return q.order("id_det", { ascending: true });
+    })(),
+
     supabase
       .from("tbl_activity_orders")
       .select(
@@ -592,6 +611,11 @@ export async function getOrderByIdAction(
   const headRow = headResp.data as OrderHeadRow;
   const detRows = (detResp.data ?? []) as OrderDetailRow[];
   const activityRows = (actResp.data ?? []) as OrderActivityRow[];
+
+  // Opcional recomendado: si se pidió id_bodega y no hay detalle, considera que "no existe" bajo ese filtro
+  if (id_bodega !== undefined && detRows.length === 0) {
+    return null;
+  }
 
   // 2) Catálogos
   const [statusResp, coloniasResp, usuariosResp, metodosResp] = await Promise.all([

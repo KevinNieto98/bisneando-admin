@@ -14,6 +14,7 @@ type ProductoBD = {
   id_producto: number;
   nombre_producto: string;
   is_active: boolean;
+  id_bodega:number;
   qty: number;     // stock disponible en BD
   precio: number;  // precio en BD
 };
@@ -25,6 +26,7 @@ type ItemValidation =
       requestedQty: number;
       requestedPrice: number;
       nombre_producto: string;
+      id_bodega:number;
       dbPrice: number;
       availableQty: number;
       message: string;
@@ -35,6 +37,7 @@ type ItemValidation =
       requestedQty: number;
       requestedPrice: number;
       nombre_producto: string;
+        id_bodega:number;
       dbPrice: number;
       availableQty: number;
       message: string;
@@ -45,6 +48,7 @@ type ItemValidation =
       requestedQty: number;
       requestedPrice: number;
       nombre_producto: string;
+      id_bodega:number;
       dbPrice: number;
       availableQty: number;
       suggestedQty: number; // min(qty BD, requested)
@@ -93,7 +97,7 @@ export async function POST(req: Request) {
     const ids = [...new Set(items.map((i) => i.id))];
     const urlProductos =
       `${base}/rest/v1/tbl_productos` +
-      `?select=id_producto,nombre_producto,is_active,qty,precio` +
+      `?select=id_producto,nombre_producto,is_active,qty,precio,id_bodega` +
       `&id_producto=in.(${ids.join(",")})`;
 
     const res = await fetch(urlProductos, {
@@ -157,6 +161,7 @@ export async function POST(req: Request) {
           requestedQty,
           requestedPrice: it.price,
           nombre_producto: bd.nombre_producto,
+          id_bodega:bd.id_bodega,
           dbPrice: bd.precio,
           availableQty,
           suggestedQty,
@@ -177,6 +182,7 @@ export async function POST(req: Request) {
           requestedQty,
           requestedPrice: it.price,
           nombre_producto: bd.nombre_producto,
+          id_bodega:bd.id_bodega,
           dbPrice: bd.precio,
           availableQty,
           message: `El precio ha cambiado. Precio actual: ${bd.precio}.`,
@@ -193,6 +199,7 @@ export async function POST(req: Request) {
         requestedQty,
         requestedPrice: it.price,
         nombre_producto: bd.nombre_producto,
+        id_bodega:bd.id_bodega,
         dbPrice: bd.precio,
         availableQty,
         message: "OK",

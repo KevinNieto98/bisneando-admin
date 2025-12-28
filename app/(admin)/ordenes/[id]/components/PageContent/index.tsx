@@ -321,7 +321,9 @@ export function PageContent({ id }: PageContentProps) {
   };
 
   // 🔹 Handler que valida comentario + (para modo "next" cuando está en 7) el select, luego abre ConfirmDialog
-  const triggerStatusUpdate = (mode: "finish" | "problem" | "reject" | "next") => {
+  const triggerStatusUpdate = (
+    mode: "finish" | "problem" | "reject" | "next"
+  ) => {
     if (!order) return;
 
     const trimmed = comment.trim();
@@ -422,7 +424,9 @@ export function PageContent({ id }: PageContentProps) {
     return (
       <div className="flex justify-center items-center min-h-[300px] px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-6 text-center">
-          <p className="text-lg font-semibold mb-2">No se pudo cargar la orden</p>
+          <p className="text-lg font-semibold mb-2">
+            No se pudo cargar la orden
+          </p>
           <p className="text-sm text-gray-600 mb-4">{loadError}</p>
           <Link
             href="/ordenes"
@@ -462,8 +466,8 @@ export function PageContent({ id }: PageContentProps) {
     uiStatus === "pagada"
       ? "bg-emerald-600"
       : uiStatus === "en_progreso"
-        ? "bg-amber-600"
-        : "bg-rose-600";
+      ? "bg-amber-600"
+      : "bg-rose-600";
 
   const payment =
     order.head.id_metodo === 1
@@ -517,15 +521,17 @@ export function PageContent({ id }: PageContentProps) {
           {isClosed ? (
             // 🔹 BANNER PARA ORDENES CERRADAS (5 o 6)
             <div
-              className={`flex flex-col md:flex-row items-center gap-4 rounded-2xl px-4 py-6 md:py-8 min-h-[140px] ${isDelivered
+              className={`flex flex-col md:flex-row items-center gap-4 rounded-2xl px-4 py-6 md:py-8 min-h-[140px] ${
+                isDelivered
                   ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
                   : "bg-rose-50 border border-rose-200 text-rose-800"
-                }`}
+              }`}
             >
               <div className="flex items-center justify-center flex-shrink-0">
                 <div
-                  className={`rounded-full p-3 md:p-4 ${isDelivered ? "bg-emerald-100" : "bg-rose-100"
-                    }`}
+                  className={`rounded-full p-3 md:p-4 ${
+                    isDelivered ? "bg-emerald-100" : "bg-rose-100"
+                  }`}
                 >
                   {isDelivered ? (
                     <CheckCircle className="w-7 h-7" />
@@ -572,10 +578,11 @@ export function PageContent({ id }: PageContentProps) {
                       setSelectedStatusId(v ? Number(v) : null);
                       if (statusSelectError) setStatusSelectError(null);
                     }}
-                    className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm bg-white outline-none transition-all ${statusSelectError
+                    className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm bg-white outline-none transition-all ${
+                      statusSelectError
                         ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
                         : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
-                      }`}
+                    }`}
                   >
                     <option value="">Selecciona un estado destino...</option>
                     {statusOptions.map((s) => (
@@ -611,10 +618,11 @@ export function PageContent({ id }: PageContentProps) {
                   }}
                   rows={3}
                   placeholder="Describe el motivo de la actualización..."
-                  className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm outline-none transition-all bg-white ${commentError
+                  className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm outline-none transition-all bg-white ${
+                    commentError
                       ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
                       : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
-                    }`}
+                  }`}
                   aria-invalid={!!commentError}
                   aria-describedby={commentError ? "comment-error" : undefined}
                 />
@@ -632,10 +640,11 @@ export function PageContent({ id }: PageContentProps) {
                   type="button"
                   onClick={() => triggerStatusUpdate("reject")}
                   disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${saving
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
+                    saving
                       ? "bg-rose-300 cursor-not-allowed"
                       : "bg-rose-600 hover:bg-rose-700"
-                    }`}
+                  }`}
                 >
                   <XOctagon className="w-4 h-4" />
                   <span>Rechazar orden</span>
@@ -646,10 +655,11 @@ export function PageContent({ id }: PageContentProps) {
                   type="button"
                   onClick={() => triggerStatusUpdate("finish")}
                   disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${saving
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
+                    saving
                       ? "bg-emerald-300 cursor-not-allowed"
                       : "bg-emerald-600 hover:bg-emerald-700"
-                    }`}
+                  }`}
                 >
                   <CheckSquare className="w-4 h-4" />
                   <span>Finalizar orden</span>
@@ -661,10 +671,11 @@ export function PageContent({ id }: PageContentProps) {
                     type="button"
                     onClick={() => triggerStatusUpdate("problem")}
                     disabled={saving}
-                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${saving
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
+                      saving
                         ? "bg-amber-300 cursor-not-allowed"
                         : "bg-amber-500 hover:bg-amber-600"
-                      }`}
+                    }`}
                   >
                     <AlertTriangle className="w-4 h-4" />
                     <span>Orden con problemas</span>
@@ -676,10 +687,11 @@ export function PageContent({ id }: PageContentProps) {
                   type="button"
                   onClick={() => triggerStatusUpdate("next")}
                   disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${saving
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
+                    saving
                       ? "bg-gray-400 cursor-not-allowed"
                       : "bg-black hover:bg-gray-800"
-                    }`}
+                  }`}
                 >
                   <ArrowRight className="w-4 h-4" />
                   <span>Actualizar orden</span>
@@ -720,11 +732,19 @@ export function PageContent({ id }: PageContentProps) {
                   </span>
                 </p>
                 <p className="text-gray-600">
-                  RTN:{" "}
+                  RTN: <span className="font-medium">{order.head.rtn ?? "-"}</span>
+                </p>
+
+                {/* ✅ NUEVO: instrucciones_entrega */}
+                <p className="mt-2 text-gray-600">
+                  Instrucciones de entrega:{" "}
                   <span className="font-medium">
-                    {order.head.rtn ?? "-"}
+                    {(order.head as any).instrucciones_entrega ??
+                      (order.head as any).instrucciones ??
+                      "-"}
                   </span>
                 </p>
+
                 <p className="text-gray-600">
                   Lat/Lng:{" "}
                   <span className="font-medium">
@@ -734,9 +754,7 @@ export function PageContent({ id }: PageContentProps) {
 
                 {hasCoords && (
                   <div className="mt-4">
-                    <p className="text-sm font-medium mb-2">
-                      Ubicación en mapa
-                    </p>
+                    <p className="text-sm font-medium mb-2">Ubicación en mapa</p>
                     <div className="w-full h-52 rounded-xl overflow-hidden border border-gray-200">
                       <iframe
                         title="Mapa de ubicación de la orden"
@@ -753,17 +771,11 @@ export function PageContent({ id }: PageContentProps) {
               {/* Totales */}
               <div className="grid grid-cols-2 gap-y-2 text-sm">
                 <span>No. Productos</span>
-                <span className="text-right">
-                  {summary.itemsCount} artículos
-                </span>
+                <span className="text-right">{summary.itemsCount} artículos</span>
                 <span>Subtotal</span>
-                <span className="text-right">
-                  {currency(summary.subtotal)}
-                </span>
+                <span className="text-right">{currency(summary.subtotal)}</span>
                 <span>Impuestos</span>
-                <span className="text-right">
-                  {currency(summary.taxes)}
-                </span>
+                <span className="text-right">{currency(summary.taxes)}</span>
                 <span className="mt-3 text-lg font-semibold">Total:</span>
                 <span className="mt-3 text-lg font-semibold text-right">
                   {currency(summary.total)}
@@ -829,9 +841,7 @@ export function PageContent({ id }: PageContentProps) {
           <section className="lg:col-span-2 space-y-6">
             {/* Detalle productos */}
             <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">
-                Detalle de productos
-              </h2>
+              <h2 className="text-xl font-semibold mb-4">Detalle de productos</h2>
               {order.det.length === 0 ? (
                 <p className="text-sm text-gray-600">
                   Esta orden no tiene detalle asociado.
@@ -844,6 +854,12 @@ export function PageContent({ id }: PageContentProps) {
                         <th className="py-2 text-left font-medium text-gray-600">
                           Producto
                         </th>
+
+                        {/* ✅ NUEVO: Columna bodega */}
+                        <th className="py-2 text-left font-medium text-gray-600">
+                          Bodega
+                        </th>
+
                         <th className="py-2 text-right font-medium text-gray-600">
                           Cantidad
                         </th>
@@ -855,12 +871,10 @@ export function PageContent({ id }: PageContentProps) {
                         </th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {order.det.map((row) => (
-                        <tr
-                          key={row.id_det}
-                          className="border-b last:border-b-0"
-                        >
+                        <tr key={row.id_det} className="border-b last:border-b-0">
                           <td className="py-3">
                             <div className="flex items-center gap-3">
                               {row.url_imagen && (
@@ -872,6 +886,7 @@ export function PageContent({ id }: PageContentProps) {
                                       `Producto #${row.id_producto}`
                                     }
                                     fill
+                                    sizes="56px"
                                     className="object-cover"
                                   />
                                 </div>
@@ -892,16 +907,20 @@ export function PageContent({ id }: PageContentProps) {
                             </div>
                           </td>
 
+                          {/* ✅ NUEVO: mostrar bodega */}
+                          <td className="py-3">
+                            <span className="text-gray-800">
+                              {(row as any).bodega ?? "-"}
+                            </span>
+                          </td>
+
                           <td className="py-3 text-right">{row.qty}</td>
                           <td className="py-3 text-right">
                             {currency(Number(row.precio))}
                           </td>
                           <td className="py-3 text-right">
                             {currency(
-                              Number(
-                                (row as any).sub_total ??
-                                row.qty * row.precio
-                              )
+                              Number((row as any).sub_total ?? row.qty * row.precio)
                             )}
                           </td>
                         </tr>
@@ -914,9 +933,7 @@ export function PageContent({ id }: PageContentProps) {
 
             {/* Historial de actividad */}
             <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">
-                Historial de actividad
-              </h2>
+              <h2 className="text-xl font-semibold mb-4">Historial de actividad</h2>
               {order.activity.length === 0 ? (
                 <p className="text-sm text-gray-600">
                   Aún no hay actividades registradas.
@@ -942,24 +959,19 @@ export function PageContent({ id }: PageContentProps) {
                     </thead>
                     <tbody>
                       {order.activity.map((act) => (
-                        <tr
-                          key={act.id_act}
-                          className="border-b last:border-b-0"
-                        >
+                        <tr key={act.id_act} className="border-b last:border-b-0">
                           <td className="py-2 align-top whitespace-nowrap">
                             {formatDateTime(
                               (act as any).fecha_actualizacion ??
-                              (act as any).created_at ??
-                              (act as any).fecha ??
-                              (act as any).fechaCreacion ??
-                              null
+                                (act as any).created_at ??
+                                (act as any).fecha ??
+                                (act as any).fechaCreacion ??
+                                null
                             )}
                           </td>
                           <td className="py-2 align-top">
                             {act.status ??
-                              (act.id_status != null
-                                ? `#${act.id_status}`
-                                : "-")}
+                              (act.id_status != null ? `#${act.id_status}` : "-")}
                           </td>
                           <td className="py-2 align-top">
                             {act.usuario_actualiza ??

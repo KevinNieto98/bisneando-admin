@@ -10,10 +10,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function OrdenReadOnlyPage({
+export default async function OrdenReadOnlyPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  return <PageContent id={params.id} />;
+  const { id } = await params;
+  return <PageContent id={id} />;
 }

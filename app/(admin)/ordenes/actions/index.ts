@@ -98,12 +98,7 @@ export type MetodoPagoRow = {
 };
 
 // Head enriquecido con nombres
-export type OrderHead = OrderHeadRow & {
-  status: string | null;          // nombre del status
-  nombre_colonia: string | null;  // nombre de la colonia
-  usuario: string | null;         // nombre completo del dueño de la orden
-  metodo_pago: string | null;     // nombre del método de pago
-};
+
 
 // Activity enriquecido con nombre de status
 export type OrderActivity = OrderActivityRow & {
@@ -539,10 +534,66 @@ export async function rejectOrderAction(params: {
     }
   }
 }
+/* =====================
+   Tipos auxiliares (ajusta/pega donde declaras tipos)
+   ===================== */
+
+
+// Tipo mínimo para resolver bodegas desde tbl_usuarios
+type BodegaUsuarioRow = {
+  id: string; // tbl_usuarios.id en tu código actual es string
+  nombre: string | null;
+  apellido: string | null;
+};
+
+/* =====================
+   Tipos auxiliares (PEGAR una sola vez donde tienes tus tipos)
+   ===================== */
+
+
+
+// IMPORTANTE:
+// - tbl_usuarios.id es UUID (string)  -> se usa para cruzar con head.uid
+// - tbl_usuarios.id_bodega es NUMBER  -> se usa para cruzar con det.id_bodega
+
+
+
+export type OrderDetailWithProducto = OrderDetailRow & {
+  nombre_producto: string | null;
+  url_imagen: string | null;
+  bodega: string | null; // "id_bodega - Nombre Apellido"
+};
 
 /* =========================================================================
    Acción: obtener TODO de una orden por id (head + det + activity)
+   - Soporta filtro opcional por id_bodega (DOBLE VALIDACIÓN en query det: eq(id_order) + eq(id_bodega))
+   - Enriquece:
+      head: status, nombre_colonia, usuario (por uid), metodo_pago
+      det: nombre_producto, url_imagen, bodega ("id_bodega - Nombre Apellido") por tbl_usuarios.id_bodega
+      activity: status
    ========================================================================= */
+
+
+
+
+// Para resolver:
+// - cliente por uid -> tbl_usuarios.id (uuid/string)
+// - bodega por id_bodega -> tbl_usuarios.id_bodega (number)
+type UsuarioRowConBodega = {
+  id: string; // uuid en tu caso
+  id_bodega: number | null;
+  nombre: string | null;
+  apellido: string | null;
+};
+
+export type OrderHead = OrderHeadRow & {
+  status: string | null;
+  nombre_colonia: string | null;
+  usuario: string | null;
+  metodo_pago: string | null;
+};
+
+
 export async function getOrderByIdAction(
   id_order: number,
   id_bodega?: number
@@ -551,7 +602,6 @@ export async function getOrderByIdAction(
     throw new Error("Falta id_order para obtener la orden.");
   }
 
-  // Validación opcional (recomendado)
   if (
     id_bodega !== undefined &&
     (!Number.isFinite(id_bodega) || id_bodega <= 0)
@@ -559,23 +609,22 @@ export async function getOrderByIdAction(
     throw new Error("Si envía id_bodega, debe ser un número válido (> 0).");
   }
 
-  // 1) Traer head, det y activity en paralelo
   const [headResp, detResp, actResp] = await Promise.all([
     supabase
       .from("tbl_orders_head")
       .select(
-        "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion"
+        "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion,instrucciones_entrega"
       )
       .eq("id_order", id_order)
       .single(),
 
-    // Ajuste: query de detalle con filtro opcional por bodega
     (() => {
       let q = supabase
         .from("tbl_orders_det")
         .select("id_det,id_order,id_producto,qty,precio,id_bodega,sub_total")
         .eq("id_order", id_order);
 
+      // ✅ 1) filtro en query
       if (id_bodega !== undefined) {
         q = q.eq("id_bodega", id_bodega);
       }
@@ -593,84 +642,77 @@ export async function getOrderByIdAction(
   ]);
 
   if (headResp.error) {
-    if (headResp.error.code === "PGRST116") {
-      // no encontró filas
-      return null;
-    }
+    if ((headResp.error as any).code === "PGRST116") return null;
     throw new Error(`Error al obtener encabezado: ${headResp.error.message}`);
   }
-
   if (detResp.error) {
     throw new Error(`Error al obtener detalle: ${detResp.error.message}`);
   }
-
   if (actResp.error) {
     throw new Error(`Error al obtener actividad: ${actResp.error.message}`);
   }
 
   const headRow = headResp.data as OrderHeadRow;
-  const detRows = (detResp.data ?? []) as OrderDetailRow[];
+
+  const detRowsRaw = (detResp.data ?? []) as OrderDetailRow[];
+
+  // ✅ 2) filtro HARD (garantía): si viene id_bodega, SOLO esa bodega
+  const detRows =
+    id_bodega !== undefined
+      ? detRowsRaw.filter((d) => Number(d.id_bodega) === Number(id_bodega))
+      : detRowsRaw;
+
   const activityRows = (actResp.data ?? []) as OrderActivityRow[];
 
-  // Opcional recomendado: si se pidió id_bodega y no hay detalle, considera que "no existe" bajo ese filtro
+  // Si pidieron id_bodega y no quedó nada luego del hard filter => null
   if (id_bodega !== undefined && detRows.length === 0) {
     return null;
   }
 
-  // 2) Catálogos
-  const [statusResp, coloniasResp, usuariosResp, metodosResp] = await Promise.all([
+  // Catálogos
+  const [statusResp, coloniasResp, metodosResp] = await Promise.all([
     supabase.from("tbl_status_orders").select("id_status,nombre"),
     supabase.from("tbl_colonias").select("id_colonia,nombre_colonia"),
-    supabase.from("tbl_usuarios").select("id,nombre,apellido"),
     supabase.from("tbl_metodos_pago").select("id_metodo,nombre_metodo"),
   ]);
 
   const statuses = (statusResp.data ?? []) as StatusRow[];
   const colonias = (coloniasResp.data ?? []) as ColoniaRow[];
-  const usuarios = (usuariosResp.data ?? []) as UsuarioRow[];
   const metodos = (metodosResp.data ?? []) as MetodoPagoRow[];
 
-  // 3) Maps de catálogos
   const statusMap = new Map<number, string | null>();
   statuses.forEach((s) => statusMap.set(s.id_status, s.nombre ?? null));
 
   const coloniaMap = new Map<number, string | null>();
-  colonias.forEach((c) => coloniaMap.set(c.id_colonia, c.nombre_colonia ?? null));
-
-  const usuarioMap = new Map<string, string | null>();
-  usuarios.forEach((u) => {
-    const fullName = [u.nombre, u.apellido].filter(Boolean).join(" ").trim();
-    usuarioMap.set(u.id, fullName || null);
-  });
+  colonias.forEach((c) =>
+    coloniaMap.set(c.id_colonia, c.nombre_colonia ?? null)
+  );
 
   const metodoPagoMap = new Map<number, string | null>();
-  metodos.forEach((m) => metodoPagoMap.set(m.id_metodo, m.nombre_metodo ?? null));
+  metodos.forEach((m) =>
+    metodoPagoMap.set(m.id_metodo, m.nombre_metodo ?? null)
+  );
 
-  // 4) Head enriquecido
   const statusNombre =
     headRow.id_status != null ? statusMap.get(headRow.id_status) ?? null : null;
 
   const nombre_colonia =
-    headRow.id_colonia != null ? coloniaMap.get(headRow.id_colonia) ?? null : null;
-
-  const usuario =
-    headRow.uid != null && headRow.uid !== ""
-      ? usuarioMap.get(headRow.uid) ?? null
+    headRow.id_colonia != null
+      ? coloniaMap.get(headRow.id_colonia) ?? null
       : null;
 
   const metodo_pago =
-    headRow.id_metodo != null ? metodoPagoMap.get(headRow.id_metodo) ?? null : null;
+    headRow.id_metodo != null
+      ? metodoPagoMap.get(headRow.id_metodo) ?? null
+      : null;
 
-  const head: OrderHead = {
-    ...headRow,
-    status: statusNombre,
-    nombre_colonia,
-    usuario,
-    metodo_pago,
-  };
-
-  // 5) Traer nombre_producto + 1 imagen por producto para los detalles
-  let det: OrderDetailWithProducto[] = detRows as OrderDetailWithProducto[];
+  // det enriquecido inicial
+  let det: OrderDetailWithProducto[] = detRows.map((d) => ({
+    ...(d as OrderDetailRow),
+    nombre_producto: null,
+    url_imagen: null,
+    bodega: null,
+  }));
 
   const productIds = Array.from(
     new Set(
@@ -680,17 +722,82 @@ export async function getOrderByIdAction(
     )
   );
 
+  const bodegaIds = Array.from(
+    new Set(
+      detRows
+        .map((d) => d.id_bodega)
+        .filter(
+          (id): id is number =>
+            id !== null &&
+            id !== undefined &&
+            Number.isFinite(Number(id)) &&
+            Number(id) > 0
+        )
+        .map((id) => Number(id))
+    )
+  );
+
+  // UN SOLO llamado a tbl_usuarios para: cliente por uid y bodegas por id_bodega
+  const usuariosOrParts: string[] = [];
+  if (headRow.uid) usuariosOrParts.push(`id.eq.${headRow.uid}`);
+  if (bodegaIds.length > 0)
+    usuariosOrParts.push(`id_bodega.in.(${bodegaIds.join(",")})`);
+
+  const usuariosResp =
+    usuariosOrParts.length > 0
+      ? await supabase
+          .from("tbl_usuarios")
+          .select("id,id_bodega,nombre,apellido")
+          .or(usuariosOrParts.join(","))
+      : ({ data: [], error: null } as any);
+
+  if (usuariosResp.error) {
+    throw new Error(
+      `Error al obtener usuarios (cliente/bodegas): ${usuariosResp.error.message}`
+    );
+  }
+
+  const usuarios = (usuariosResp.data ?? []) as UsuarioRowConBodega[];
+
+  const usuarioMap = new Map<string, string | null>();
+  const bodegaNombreMap = new Map<number, string | null>();
+
+  usuarios.forEach((u) => {
+    const fullName = [u.nombre, u.apellido].filter(Boolean).join(" ").trim();
+    const name = fullName || null;
+
+    if (u.id) usuarioMap.set(u.id, name);
+
+    if (u.id_bodega != null && Number.isFinite(Number(u.id_bodega))) {
+      bodegaNombreMap.set(Number(u.id_bodega), name);
+    }
+  });
+
+  const usuario =
+    headRow.uid != null && headRow.uid !== ""
+      ? usuarioMap.get(headRow.uid) ?? null
+      : null;
+
+  const head: OrderHead = {
+    ...headRow,
+    status: statusNombre,
+    nombre_colonia,
+    usuario,
+    metodo_pago,
+  };
+
+  // Productos + imágenes
   if (productIds.length > 0) {
     const [prodResp, imgResp] = await Promise.all([
       supabase
         .from("tbl_productos")
         .select("id_producto,nombre_producto")
         .in("id_producto", productIds),
+
       supabase
         .from("tbl_imagenes_producto")
         .select("id_producto,url_imagen,is_principal,orden")
         .in("id_producto", productIds)
-        // primero las principales, luego por orden asc
         .order("is_principal", { ascending: false })
         .order("orden", { ascending: true }),
     ]);
@@ -700,14 +807,17 @@ export async function getOrderByIdAction(
         `Error al obtener productos para detalles: ${prodResp.error.message}`
       );
     }
-
     if (imgResp.error) {
       throw new Error(
         `Error al obtener imágenes para productos: ${imgResp.error.message}`
       );
     }
 
-    const productos = (prodResp.data ?? []) as { id_producto: number; nombre_producto: string }[];
+    const productos = (prodResp.data ?? []) as {
+      id_producto: number;
+      nombre_producto: string;
+    }[];
+
     const imgs = (imgResp.data ?? []) as {
       id_producto: number;
       url_imagen: string;
@@ -716,9 +826,10 @@ export async function getOrderByIdAction(
     }[];
 
     const nombreProdMap = new Map<number, string>();
-    productos.forEach((p) => nombreProdMap.set(p.id_producto, p.nombre_producto));
+    productos.forEach((p) =>
+      nombreProdMap.set(p.id_producto, p.nombre_producto)
+    );
 
-    // elegir SOLO UNA imagen por producto: la primera según el orden aplicado arriba
     const imgPorProducto = new Map<number, string>();
     for (const img of imgs) {
       if (!imgPorProducto.has(img.id_producto)) {
@@ -726,29 +837,54 @@ export async function getOrderByIdAction(
       }
     }
 
-    det = detRows.map((d) => ({
-      ...d,
-      nombre_producto: nombreProdMap.get(d.id_producto) ?? null,
-      url_imagen: imgPorProducto.get(d.id_producto) ?? null,
-    }));
+    det = detRows.map((d) => {
+      const bodegaNombre =
+        d.id_bodega != null
+          ? bodegaNombreMap.get(Number(d.id_bodega)) ?? null
+          : null;
+
+      return {
+        ...d,
+        nombre_producto: nombreProdMap.get(d.id_producto) ?? null,
+        url_imagen: imgPorProducto.get(d.id_producto) ?? null,
+        bodega:
+          d.id_bodega != null
+            ? `${d.id_bodega} - ${bodegaNombre ?? "Sin nombre"}`
+            : null,
+      };
+    });
+  } else {
+    det = detRows.map((d) => {
+      const bodegaNombre =
+        d.id_bodega != null
+          ? bodegaNombreMap.get(Number(d.id_bodega)) ?? null
+          : null;
+
+      return {
+        ...d,
+        nombre_producto: null,
+        url_imagen: null,
+        bodega:
+          d.id_bodega != null
+            ? `${d.id_bodega} - ${bodegaNombre ?? "Sin nombre"}`
+            : null,
+      };
+    });
   }
 
-  // 6) Activity enriquecida
   const activity: OrderActivity[] = activityRows.map((act) => {
     const statusNombreAct =
       act.id_status != null ? statusMap.get(act.id_status) ?? null : null;
-    return {
-      ...act,
-      status: statusNombreAct,
-    };
+    return { ...act, status: statusNombreAct };
   });
 
-  return {
-    head,
-    det,
-    activity,
-  };
+  return { head, det, activity };
 }
+
+
+
+
+
 
 type OrderDetailRow = {
   url_imagen: string | null ;
@@ -761,10 +897,6 @@ type OrderDetailRow = {
   sub_total: number;
 };
 
-type OrderDetailWithProducto = OrderDetailRow & {
-  nombre_producto: string | null;
-  url_imagen: string | null;
-};
 
 
 export type TodayOrdersSummary = {
@@ -1099,3 +1231,67 @@ export async function getOrdersHeadByBodegaAction(
   const data = (await res.json().catch(() => [])) as VwOrdersHeadRow[];
   return Array.isArray(data) ? data : [];
 }
+
+
+
+export async function getOrdersDetByBodegaAction(
+  id_bodega: number
+): Promise<VwOrdersDetRow[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return [];
+  }
+
+  if (!Number.isFinite(id_bodega) || id_bodega <= 0) {
+    console.error("id_bodega inválido:", id_bodega);
+    return [];
+  }
+
+  // Query params PostgREST
+  const qs = new URLSearchParams();
+  qs.set(
+    "select",
+    "id_det,id_order,id_producto,qty,precio,sub_total,id_bodega,nombre_producto,url_imagen"
+  );
+  qs.set("id_bodega", `eq.${id_bodega}`);
+  qs.set("order", "id_order.desc,id_det.asc");
+
+  const url = `${base}/rest/v1/vw_orders_det?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error(
+      "Error al obtener detalle de órdenes por bodega:",
+      res.status,
+      await res.text()
+    );
+    return [];
+  }
+
+  const data = (await res.json().catch(() => [])) as VwOrdersDetRow[];
+  return Array.isArray(data) ? data : [];
+}
+
+export type VwOrdersDetRow = {
+  id_det: number;
+  id_order: number;
+  id_producto: number;
+  qty: number;
+  precio: number;
+  sub_total: number;
+  id_bodega: number | null;
+  nombre_producto: string | null;
+  url_imagen: string | null;
+};

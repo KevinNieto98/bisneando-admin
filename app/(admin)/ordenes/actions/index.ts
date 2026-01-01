@@ -1295,3 +1295,75 @@ export type VwOrdersDetRow = {
   nombre_producto: string | null;
   url_imagen: string | null;
 };
+
+
+// Tipado base tal como viene de Supabase
+export interface ActivityOrderRow {
+  id_act: number
+  id_order: number
+  id_status: number
+  fecha_actualizacion: string
+  usuario_actualiza: string | null
+  observacion: string | null
+}
+
+// Shape que consumes en el front (si deseas adaptar nombres)
+export interface ActivityOrder {
+  id_act: number
+  id_order: number
+  id_status: number
+  fecha_actualizacion: string
+  usuario_actualiza: string | null
+  observacion: string | null
+}
+
+export async function getActivityOrdersByOrderIdAction(id_order: number) {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY // o ANON_KEY
+
+  if (!base || !apiKey) {
+    console.error(
+      'Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
+    )
+    return []
+  }
+
+  // Construcción del query REST equivalente
+  const params = new URLSearchParams({
+    select:
+      'id_act,id_order,id_status,fecha_actualizacion,usuario_actualiza,observacion',
+    id_order: `eq.${id_order}`,
+    order: 'id_act.desc',
+  })
+
+  const url = `${base}/rest/v1/tbl_activity_orders?${params.toString()}`
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: 'no-store',
+  })
+
+  if (!res.ok) {
+    console.error(
+      'Error al obtener activity orders:',
+      res.status,
+      await res.text()
+    )
+    return []
+  }
+
+  const rows: ActivityOrderRow[] = await res.json()
+
+  // En este caso el shape ya coincide, pero se deja el mapeo explícito
+  return rows.map((r) => ({
+    id_act: r.id_act,
+    id_order: r.id_order,
+    id_status: r.id_status,
+    fecha_actualizacion: r.fecha_actualizacion,
+    usuario_actualiza: r.usuario_actualiza,
+    observacion: r.observacion,
+  }))
+}

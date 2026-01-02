@@ -26,6 +26,7 @@ import {
   getOrderByIdAction,
   updateOrderStatusByIdAction,
   advanceOrderToNextStatusAction,
+  getFulfillmentByOrderIdAndStatusAction,
 } from "../../../actions";
 
 /* =====================
@@ -45,11 +46,6 @@ type StatusOrder = {
   nombre: string | null;
 };
 
-/* =====================
-   ✅ Fulfillment (REST desde cliente)
-   - AJUSTE: recibe id_status y filtra server-side
-   ===================== */
-
 type FulfillmentRow = {
   id_bodega: number | null;
   is_used: boolean | null;
@@ -57,59 +53,7 @@ type FulfillmentRow = {
   updated_at: string | null;
 };
 
-async function getFulfillmentByOrderIdAndStatusAction(
-  id_order: number,
-  id_status?: number | null
-): Promise<FulfillmentRow[]> {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  if (!base || !apiKey) {
-    console.error(
-      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-    );
-    return [];
-  }
-
-  if (!Number.isFinite(id_order) || id_order <= 0) {
-    console.error("id_order inválido:", id_order);
-    return [];
-  }
-
-  const status = id_status == null ? null : Number(id_status);
-  if (status != null && (!Number.isFinite(status) || status <= 0)) {
-    console.error("id_status inválido:", id_status);
-    return [];
-  }
-
-  const qs = new URLSearchParams();
-  qs.set("select", "id_bodega,is_used,created_at,updated_at");
-  qs.set("id_order", `eq.${id_order}`);
-  if (status != null) qs.set("id_status", `eq.${status}`); // ✅ filtro por status
-  qs.set("order", "id_bodega.asc");
-
-  const url = `${base}/rest/v1/tbl_orders_fulfillment?${qs.toString()}`;
-
-  const res = await fetch(url, {
-    headers: {
-      apikey: apiKey,
-      Authorization: `Bearer ${apiKey}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    console.error(
-      "Error al obtener fulfillment por orden/status:",
-      res.status,
-      await res.text()
-    );
-    return [];
-  }
-
-  const data = (await res.json().catch(() => [])) as FulfillmentRow[];
-  return Array.isArray(data) ? data : [];
-}
 
 /* =====================
    Helpers generales

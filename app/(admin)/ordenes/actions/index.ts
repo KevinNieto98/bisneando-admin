@@ -1642,12 +1642,26 @@ export type TblOrdersFulfillmentRow = {
   updated_at?: string | null;
 };
 
-export async function getOrdersFulfillmentByBodegaAction(
-  id_bodega: number,
-  id_status?: number | null // ✅ NUEVO (opcional)
-): Promise<TblOrdersFulfillmentRow[]> {
+
+/* =====================
+   ✅ Fulfillment (REST desde cliente)
+   - AJUSTE: recibe id_status y filtra server-side
+   ===================== */
+
+type FulfillmentRow = {
+  id_bodega: number | null;
+  is_used: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+
+export async function getFulfillmentByOrderIdAndStatusAction(
+  id_order: number,
+  id_status?: number | null
+): Promise<FulfillmentRow[]> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if (!base || !apiKey) {
     console.error(
@@ -1656,49 +1670,22 @@ export async function getOrdersFulfillmentByBodegaAction(
     return [];
   }
 
-  if (!Number.isFinite(id_bodega) || id_bodega <= 0) {
-    console.error("id_bodega inválido:", id_bodega);
+  if (!Number.isFinite(id_order) || id_order <= 0) {
+    console.error("id_order inválido:", id_order);
     return [];
   }
 
-  // ✅ Si te pasan id_status, lo validamos (si viene inválido, retornamos vacío)
   const status = id_status == null ? null : Number(id_status);
   if (status != null && (!Number.isFinite(status) || status <= 0)) {
     console.error("id_status inválido:", id_status);
     return [];
   }
 
-  // Query params PostgREST
   const qs = new URLSearchParams();
-
-  // Ajusta el select exactamente a las columnas que tengas en tbl_orders_fulfillment
-  qs.set(
-    "select",
-    [
-      "id_fulfillment",
-      "id_order",
-      "id_bodega",
-      "id_status",
-      "is_used",
-      "observacion",
-      "usuario_actualiza",
-      "fecha_actualizacion",
-      "created_by",
-      "created_at",
-      "updated_by",
-      "updated_at",
-    ].join(",")
-  );
-
-  qs.set("id_bodega", `eq.${id_bodega}`);
-
-  // ✅ Filtrar por status SOLO si viene indicado
-  if (status != null) {
-    qs.set("id_status", `eq.${status}`);
-  }
-
-  // Orden: más recientes primero por orden, y luego por fulfillment
-  qs.set("order", "id_order.desc,id_fulfillment.desc");
+  qs.set("select", "id_bodega,is_used,created_at,updated_at");
+  qs.set("id_order", `eq.${id_order}`);
+  if (status != null) qs.set("id_status", `eq.${status}`); // ✅ filtro por status
+  qs.set("order", "id_bodega.asc");
 
   const url = `${base}/rest/v1/tbl_orders_fulfillment?${qs.toString()}`;
 
@@ -1712,13 +1699,13 @@ export async function getOrdersFulfillmentByBodegaAction(
 
   if (!res.ok) {
     console.error(
-      "Error al obtener fulfillments por bodega:",
+      "Error al obtener fulfillment por orden/status:",
       res.status,
       await res.text()
     );
     return [];
   }
 
-  const data = (await res.json().catch(() => [])) as TblOrdersFulfillmentRow[];
+  const data = (await res.json().catch(() => [])) as FulfillmentRow[];
   return Array.isArray(data) ? data : [];
 }

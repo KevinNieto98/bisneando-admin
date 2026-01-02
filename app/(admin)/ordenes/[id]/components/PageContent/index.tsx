@@ -46,6 +46,72 @@ type StatusOrder = {
 };
 
 /* =====================
+   ✅ Fulfillment (REST desde cliente)
+   - AJUSTE: recibe id_status y filtra server-side
+   ===================== */
+
+type FulfillmentRow = {
+  id_bodega: number | null;
+  is_used: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+async function getFulfillmentByOrderIdAndStatusAction(
+  id_order: number,
+  id_status?: number | null
+): Promise<FulfillmentRow[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return [];
+  }
+
+  if (!Number.isFinite(id_order) || id_order <= 0) {
+    console.error("id_order inválido:", id_order);
+    return [];
+  }
+
+  const status = id_status == null ? null : Number(id_status);
+  if (status != null && (!Number.isFinite(status) || status <= 0)) {
+    console.error("id_status inválido:", id_status);
+    return [];
+  }
+
+  const qs = new URLSearchParams();
+  qs.set("select", "id_bodega,is_used,created_at,updated_at");
+  qs.set("id_order", `eq.${id_order}`);
+  if (status != null) qs.set("id_status", `eq.${status}`); // ✅ filtro por status
+  qs.set("order", "id_bodega.asc");
+
+  const url = `${base}/rest/v1/tbl_orders_fulfillment?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error(
+      "Error al obtener fulfillment por orden/status:",
+      res.status,
+      await res.text()
+    );
+    return [];
+  }
+
+  const data = (await res.json().catch(() => [])) as FulfillmentRow[];
+  return Array.isArray(data) ? data : [];
+}
+
+/* =====================
    Helpers generales
    ===================== */
 
@@ -117,12 +183,10 @@ function OrderPageSkeleton() {
   return (
     <div className="flex justify-center items-start mb-32 px-4 sm:px-6 lg:px-8">
       <div className="flex flex-col w-full max-w-[1100px] animate-pulse">
-        {/* Título */}
         <div className="flex items-center justify-between mb-6">
           <div className="h-8 w-40 bg-gray-200 rounded-xl" />
         </div>
 
-        {/* Card actualizar */}
         <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
           <div className="h-6 w-64 bg-gray-200 rounded mb-4" />
           <div className="h-10 w-full bg-gray-200 rounded-xl mb-4" />
@@ -131,7 +195,6 @@ function OrderPageSkeleton() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mt-2">
-          {/* Resumen */}
           <aside className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-md p-6">
               <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
@@ -146,7 +209,6 @@ function OrderPageSkeleton() {
             </div>
           </aside>
 
-          {/* Productos + pago + activity */}
           <section className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl shadow-md p-6">
               <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
@@ -184,7 +246,6 @@ interface PageContentProps {
 export function PageContent({ id }: PageContentProps) {
   const router = useRouter();
 
-  // UI store (alerta + confirm)
   const mostrarAlerta = useUIStore((s) => s.mostrarAlerta);
   const openConfirm = useUIStore((s) => s.openConfirm);
 
@@ -203,23 +264,45 @@ export function PageContent({ id }: PageContentProps) {
   );
   const [selectedStatusId, setSelectedStatusId] = useState<number | null>(null);
 
+  // ✅ Fulfillment state (filtrado por el status actual de la orden)
+  const [fulfillmentRows, setFulfillmentRows] = useState<FulfillmentRow[]>([]);
+  const [fulfillmentLoading, setFulfillmentLoading] = useState(false);
+  const [fulfillmentError, setFulfillmentError] = useState<string | null>(null);
+
+  // helper: cargar fulfillment según status actual
+  const loadFulfillment = async (orderId: number, status: number | null) => {
+    try {
+      setFulfillmentLoading(true);
+      setFulfillmentError(null);
+      const full = await getFulfillmentByOrderIdAndStatusAction(orderId, status);
+      setFulfillmentRows(Array.isArray(full) ? full : []);
+    } catch (e: any) {
+      console.error(e);
+      setFulfillmentError(e?.message ?? "No se pudo cargar el fulfillment.");
+      setFulfillmentRows([]);
+    } finally {
+      setFulfillmentLoading(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
+
     const load = async () => {
       try {
         setLoading(true);
         setLoadError(null);
 
         const data = await getOrderByIdAction(Number(id));
-        console.log(data);
-
         if (!active) return;
 
-        if (!data) {
-          throw new Error("No se encontró la orden.");
-        }
+        if (!data) throw new Error("No se encontró la orden.");
 
         setOrder(data);
+
+        // ✅ Cargar fulfillment SOLO del status actual de la orden
+        const currentStatus = Number(data.head.id_status ?? 0) || null;
+        await loadFulfillment(Number(id), currentStatus);
       } catch (e: any) {
         console.error(e);
         if (active) setLoadError(e?.message ?? "Error al cargar la orden.");
@@ -227,6 +310,7 @@ export function PageContent({ id }: PageContentProps) {
         if (active) setLoading(false);
       }
     };
+
     load();
     return () => {
       active = false;
@@ -242,7 +326,6 @@ export function PageContent({ id }: PageContentProps) {
         const all = await getStatusOrdersAction();
         if (!active) return;
 
-        // Excluimos 5 (finalizada), 6 (rechazada), 7 (problemas)
         const filtered = all.filter(
           (s) => ![5, 6, 7].includes(Number(s.id_status))
         );
@@ -263,16 +346,11 @@ export function PageContent({ id }: PageContentProps) {
     mode: "finish" | "problem" | "reject" | "next",
     observacion: string
   ) => {
-    if (!order) {
-      throw new Error("No hay orden cargada.");
-    }
+    if (!order) throw new Error("No hay orden cargada.");
 
     if (mode === "next") {
-      // Caso especial: si está en 7, usamos el valor del select como destino
       if (order.head.id_status === 7) {
-        if (!selectedStatusId) {
-          throw new Error("No se seleccionó el estado destino.");
-        }
+        if (!selectedStatusId) throw new Error("No se seleccionó el estado destino.");
 
         await updateOrderStatusByIdAction({
           id_order: Number(id),
@@ -281,7 +359,6 @@ export function PageContent({ id }: PageContentProps) {
           usuario_actualiza: order.head.usuario_actualiza ?? "admin",
         });
       } else {
-        // Flujo normal: avanzar al siguiente status definido en tbl_status_orders
         await advanceOrderToNextStatusAction({
           id_order: Number(id),
           observacion,
@@ -289,7 +366,6 @@ export function PageContent({ id }: PageContentProps) {
         });
       }
     } else {
-      // 5 = Finalizar, 7 = Problemas, 6 = Rechazar
       const id_status_destino =
         mode === "finish" ? 5 : mode === "problem" ? 7 : 6;
 
@@ -301,26 +377,25 @@ export function PageContent({ id }: PageContentProps) {
       });
     }
 
-    // Recargar orden (por consistencia, aunque luego redirigimos)
+    // Recargar orden
     const updated = await getOrderByIdAction(Number(id));
-    if (!updated) {
-      throw new Error("No se encontró la orden después de actualizar.");
-    }
+    if (!updated) throw new Error("No se encontró la orden después de actualizar.");
 
     setOrder(updated);
 
-    // Alert de éxito
+    // ✅ Refrescar fulfillment del NUEVO status actual (por si cambió)
+    const newStatus = Number(updated.head.id_status ?? 0) || null;
+    await loadFulfillment(Number(id), newStatus);
+
     mostrarAlerta(
       "¡Orden actualizada!",
       "La orden se actualizó correctamente.",
       "success"
     );
 
-    // Redirigir al listado (ajusta si quieres otra ruta)
     router.push("/ordenes/en-proceso");
   };
 
-  // 🔹 Handler que valida comentario + (para modo "next" cuando está en 7) el select, luego abre ConfirmDialog
   const triggerStatusUpdate = (
     mode: "finish" | "problem" | "reject" | "next"
   ) => {
@@ -333,7 +408,6 @@ export function PageContent({ id }: PageContentProps) {
     }
     setCommentError(null);
 
-    // Si la orden está en 7 y es el botón "Actualizar orden" (next), el select es obligatorio
     if (mode === "next" && order.head.id_status === 7) {
       if (!selectedStatusId) {
         setStatusSelectError(
@@ -366,9 +440,7 @@ export function PageContent({ id }: PageContentProps) {
         break;
       case "next":
         if (order.head.id_status === 7 && selectedStatusId) {
-          const destino = statusOptions.find(
-            (s) => s.id_status === selectedStatusId
-          );
+          const destino = statusOptions.find((s) => s.id_status === selectedStatusId);
           const destinoLabel = destino
             ? `${destino.nombre ?? ""} (#${destino.id_status})`
             : `#${selectedStatusId}`;
@@ -408,13 +480,11 @@ export function PageContent({ id }: PageContentProps) {
   };
 
   const summary = useMemo(() => {
-    if (!order) {
-      return { itemsCount: 0, subtotal: 0, taxes: 0, total: 0 };
-    }
+    if (!order) return { itemsCount: 0, subtotal: 0, taxes: 0, total: 0 };
     const itemsCount = order.det.reduce((acc, it) => acc + Number(it.qty), 0);
-    const subtotal = Number(order.head.sub_total ?? 0);
-    const taxes = Number(order.head.isv ?? 0);
-    const total = Number(order.head.total ?? subtotal + taxes);
+    const subtotal = Number((order.head as any).sub_total ?? 0);
+    const taxes = Number((order.head as any).isv ?? 0);
+    const total = Number((order.head as any).total ?? subtotal + taxes);
     return { itemsCount, subtotal, taxes, total };
   }, [order]);
 
@@ -424,9 +494,7 @@ export function PageContent({ id }: PageContentProps) {
     return (
       <div className="flex justify-center items-center min-h-[300px] px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-6 text-center">
-          <p className="text-lg font-semibold mb-2">
-            No se pudo cargar la orden
-          </p>
+          <p className="text-lg font-semibold mb-2">No se pudo cargar la orden</p>
           <p className="text-sm text-gray-600 mb-4">{loadError}</p>
           <Link
             href="/ordenes"
@@ -470,18 +538,20 @@ export function PageContent({ id }: PageContentProps) {
       : "bg-rose-600";
 
   const payment =
-    order.head.id_metodo === 1
+    (order.head as any).id_metodo === 1
       ? { method: "efectivo" as const }
       : { method: "tarjeta" as const, last4: "0000" };
 
-  const lastActivity = order.activity[0];
+  const lastActivity = (order as any).activity?.[0];
   const rejectionReason =
     uiStatus === "rechazada"
-      ? lastActivity?.observacion ?? order.head.observacion ?? "No especificado."
+      ? lastActivity?.observacion ??
+        (order.head as any).observacion ??
+        "No especificado."
       : undefined;
 
-  const lat = order.head.latitud ? Number(order.head.latitud) : null;
-  const lng = order.head.longitud ? Number(order.head.longitud) : null;
+  const lat = (order.head as any).latitud ? Number((order.head as any).latitud) : null;
+  const lng = (order.head as any).longitud ? Number((order.head as any).longitud) : null;
   const hasCoords =
     lat !== null && !Number.isNaN(lat) && lng !== null && !Number.isNaN(lng);
 
@@ -491,10 +561,8 @@ export function PageContent({ id }: PageContentProps) {
   return (
     <div className="flex justify-center items-start mb-32 px-4 sm:px-6 lg:px-8">
       <div className="flex flex-col w-full max-w-[1100px]">
-        {/* Alert global */}
         <Alert />
 
-        {/* 🔹 Título */}
         <div className="flex items-center justify-between mb-6">
           <Title
             icon={<ClipboardCheck className="w-5 h-5" />}
@@ -504,13 +572,11 @@ export function PageContent({ id }: PageContentProps) {
           />
         </div>
 
-        {/* 🔹 Apartado: actualizar / resumen de estado de la orden */}
         <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
           <h2 className="text-xl font-semibold mb-3">
             {isClosed ? "Estado de la orden" : "Actualizar estado de la orden"}
           </h2>
 
-          {/* Estado actual */}
           <p className="text-sm text-gray-700 mb-3">
             <span className="font-medium">Estado actual:</span>{" "}
             <span className="font-semibold">
@@ -519,7 +585,6 @@ export function PageContent({ id }: PageContentProps) {
           </p>
 
           {isClosed ? (
-            // 🔹 BANNER PARA ORDENES CERRADAS (5 o 6)
             <div
               className={`flex flex-col md:flex-row items-center gap-4 rounded-2xl px-4 py-6 md:py-8 min-h-[140px] ${
                 isDelivered
@@ -543,9 +608,7 @@ export function PageContent({ id }: PageContentProps) {
 
               <div className="flex-1 text-center md:text-left space-y-1">
                 <p className="text-base md:text-lg font-semibold">
-                  {isDelivered
-                    ? "Orden finalizada / entregada"
-                    : "Orden rechazada"}
+                  {isDelivered ? "Orden finalizada / entregada" : "Orden rechazada"}
                 </p>
                 <p className="text-sm leading-snug">
                   {isDelivered
@@ -556,16 +619,13 @@ export function PageContent({ id }: PageContentProps) {
                 {isRejected && rejectionReason && (
                   <div className="mt-3 rounded-xl bg-white/60 border border-rose-200 px-3 py-2 text-xs text-rose-800 text-left">
                     <p className="font-semibold mb-1">Motivo del rechazo</p>
-                    <p className="whitespace-pre-wrap break-words">
-                      {rejectionReason}
-                    </p>
+                    <p className="whitespace-pre-wrap break-words">{rejectionReason}</p>
                   </div>
                 )}
               </div>
             </div>
           ) : (
             <>
-              {/* Si está en Orden con Problemas (id_status = 7), mostrar select de destino */}
               {isProblemStatus && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -592,20 +652,16 @@ export function PageContent({ id }: PageContentProps) {
                     ))}
                   </select>
                   {statusSelectError && (
-                    <p className="mt-1 text-xs text-rose-600">
-                      {statusSelectError}
-                    </p>
+                    <p className="mt-1 text-xs text-rose-600">{statusSelectError}</p>
                   )}
                   <p className="mt-1 text-xs text-gray-500">
-                    Este selector solo se usa cuando la orden está en
-                    &quot;Orden con problemas&quot; (status 7). El botón
-                    &quot;Actualizar orden&quot; llevará la orden al estado
-                    elegido aquí.
+                    Este selector solo se usa cuando la orden está en &quot;Orden con
+                    problemas&quot; (status 7). El botón &quot;Actualizar orden&quot;
+                    llevará la orden al estado elegido aquí.
                   </p>
                 </div>
               )}
 
-              {/* Comentario obligatorio */}
               <div className="mb-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Comentario
@@ -633,9 +689,7 @@ export function PageContent({ id }: PageContentProps) {
                 )}
               </div>
 
-              {/* Botones de acción */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
-                {/* Rechazar Orden (6) */}
                 <button
                   type="button"
                   onClick={() => triggerStatusUpdate("reject")}
@@ -650,7 +704,6 @@ export function PageContent({ id }: PageContentProps) {
                   <span>Rechazar orden</span>
                 </button>
 
-                {/* Finalizar Orden (5) */}
                 <button
                   type="button"
                   onClick={() => triggerStatusUpdate("finish")}
@@ -665,7 +718,6 @@ export function PageContent({ id }: PageContentProps) {
                   <span>Finalizar orden</span>
                 </button>
 
-                {/* Orden con Problemas (7) - SOLO si aún no está en 7 */}
                 {!isProblemStatus && (
                   <button
                     type="button"
@@ -682,7 +734,6 @@ export function PageContent({ id }: PageContentProps) {
                   </button>
                 )}
 
-                {/* Avanzar al siguiente paso del flujo / usar select si está en 7 */}
                 <button
                   type="button"
                   onClick={() => triggerStatusUpdate("next")}
@@ -701,41 +752,34 @@ export function PageContent({ id }: PageContentProps) {
           )}
         </div>
 
-        {/* 🔹 Grid principal */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mt-2">
           {/* Columna izquierda: Resumen */}
           <aside className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-md p-6 sticky top-4">
               <h3 className="text-xl font-semibold mb-4">Resumen de orden</h3>
 
-              {/* Datos cliente */}
               <div className="rounded-2xl border border-gray-200 p-4 mb-5 text-sm">
                 <p className="font-medium mb-1">Cliente / UID</p>
 
-                <p className="text-gray-700 break-all text-xs">
-                  {order.head.uid}
-                </p>
+                <p className="text-gray-700 break-all text-xs">{order.head.uid}</p>
 
-                {order.head.usuario && (
+                {(order.head as any).usuario && (
                   <Link
                     href={`/usuarios/${order.head.uid}`}
                     className="mt-1 inline-flex text-sm text-blue-600 hover:underline"
                   >
-                    {order.head.usuario}
+                    {(order.head as any).usuario}
                   </Link>
                 )}
 
                 <p className="mt-2 text-gray-600">
                   Colonia{" "}
-                  <span className="font-medium">
-                    {order.head.nombre_colonia ?? "-"}
-                  </span>
+                  <span className="font-medium">{order.head.nombre_colonia ?? "-"}</span>
                 </p>
                 <p className="text-gray-600">
-                  RTN: <span className="font-medium">{order.head.rtn ?? "-"}</span>
+                  RTN: <span className="font-medium">{(order.head as any).rtn ?? "-"}</span>
                 </p>
 
-                {/* ✅ NUEVO: instrucciones_entrega */}
                 <p className="mt-2 text-gray-600">
                   Instrucciones de entrega:{" "}
                   <span className="font-medium">
@@ -748,7 +792,7 @@ export function PageContent({ id }: PageContentProps) {
                 <p className="text-gray-600">
                   Lat/Lng:{" "}
                   <span className="font-medium">
-                    {order.head.latitud ?? "-"} / {order.head.longitud ?? "-"}
+                    {(order.head as any).latitud ?? "-"} / {(order.head as any).longitud ?? "-"}
                   </span>
                 </p>
 
@@ -768,7 +812,6 @@ export function PageContent({ id }: PageContentProps) {
                 )}
               </div>
 
-              {/* Totales */}
               <div className="grid grid-cols-2 gap-y-2 text-sm">
                 <span>No. Productos</span>
                 <span className="text-right">{summary.itemsCount} artículos</span>
@@ -782,7 +825,6 @@ export function PageContent({ id }: PageContentProps) {
                 </span>
               </div>
 
-              {/* Método de pago dentro del resumen */}
               <div className="mt-6">
                 <h4 className="text-sm font-semibold mb-2">Método de pago</h4>
                 <div className="flex items-center gap-3 rounded-2xl border border-gray-200 p-4">
@@ -806,7 +848,6 @@ export function PageContent({ id }: PageContentProps) {
                 </div>
               </div>
 
-              {/* Badge de estado */}
               <div
                 className={`mt-6 w-full flex justify-center items-center gap-2 rounded-xl py-3 text-center text-white font-medium ${statusBg}`}
               >
@@ -837,43 +878,29 @@ export function PageContent({ id }: PageContentProps) {
             </div>
           </aside>
 
-          {/* Columna derecha: Detalle + Activity */}
+          {/* Columna derecha */}
           <section className="lg:col-span-2 space-y-6">
             {/* Detalle productos */}
             <div className="bg-white rounded-2xl shadow-md p-6">
               <h2 className="text-xl font-semibold mb-4">Detalle de productos</h2>
+
               {order.det.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  Esta orden no tiene detalle asociado.
-                </p>
+                <p className="text-sm text-gray-600">Esta orden no tiene detalle asociado.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Producto
-                        </th>
-
-                        {/* ✅ NUEVO: Columna bodega */}
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Bodega
-                        </th>
-
-                        <th className="py-2 text-right font-medium text-gray-600">
-                          Cantidad
-                        </th>
-                        <th className="py-2 text-right font-medium text-gray-600">
-                          Precio
-                        </th>
-                        <th className="py-2 text-right font-medium text-gray-600">
-                          Subtotal
-                        </th>
+                        <th className="py-2 text-left font-medium text-gray-600">Producto</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Bodega</th>
+                        <th className="py-2 text-right font-medium text-gray-600">Cantidad</th>
+                        <th className="py-2 text-right font-medium text-gray-600">Precio</th>
+                        <th className="py-2 text-right font-medium text-gray-600">Subtotal</th>
                       </tr>
                     </thead>
 
                     <tbody>
-                      {order.det.map((row) => (
+                      {order.det.map((row: any) => (
                         <tr key={row.id_det} className="border-b last:border-b-0">
                           <td className="py-3">
                             <div className="flex items-center gap-3">
@@ -881,10 +908,7 @@ export function PageContent({ id }: PageContentProps) {
                                 <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
                                   <Image
                                     src={row.url_imagen}
-                                    alt={
-                                      (row as any).nombre_producto ??
-                                      `Producto #${row.id_producto}`
-                                    }
+                                    alt={row.nombre_producto ?? `Producto #${row.id_producto}`}
                                     fill
                                     sizes="56px"
                                     className="object-cover"
@@ -897,31 +921,21 @@ export function PageContent({ id }: PageContentProps) {
                                   href={`/productos/${row.id_producto}`}
                                   className="text-sm font-semibold text-blue-600 hover:underline"
                                 >
-                                  {(row as any).nombre_producto ??
-                                    `Producto #${row.id_producto}`}
+                                  {row.nombre_producto ?? `Producto #${row.id_producto}`}
                                 </Link>
-                                <span className="text-xs text-gray-500">
-                                  ID: {row.id_producto}
-                                </span>
+                                <span className="text-xs text-gray-500">ID: {row.id_producto}</span>
                               </div>
                             </div>
                           </td>
 
-                          {/* ✅ NUEVO: mostrar bodega */}
                           <td className="py-3">
-                            <span className="text-gray-800">
-                              {(row as any).bodega ?? "-"}
-                            </span>
+                            <span className="text-gray-800">{row.bodega ?? "-"}</span>
                           </td>
 
                           <td className="py-3 text-right">{row.qty}</td>
+                          <td className="py-3 text-right">{currency(Number(row.precio))}</td>
                           <td className="py-3 text-right">
-                            {currency(Number(row.precio))}
-                          </td>
-                          <td className="py-3 text-right">
-                            {currency(
-                              Number((row as any).sub_total ?? row.qty * row.precio)
-                            )}
+                            {currency(Number(row.sub_total ?? row.qty * row.precio))}
                           </td>
                         </tr>
                       ))}
@@ -931,57 +945,101 @@ export function PageContent({ id }: PageContentProps) {
               )}
             </div>
 
-            {/* Historial de actividad */}
+            {/* ✅ Fulfillment (solo status actual) */}
             <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">Historial de actividad</h2>
-              {order.activity.length === 0 ? (
+              <h2 className="text-xl font-semibold mb-1">Fulfillment por bodega</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Mostrando únicamente registros del status actual{" "}
+                <span className="font-semibold">#{order.head.id_status ?? "-"}</span>.
+              </p>
+
+              {fulfillmentLoading ? (
+                <p className="text-sm text-gray-600">Cargando fulfillment…</p>
+              ) : fulfillmentError ? (
+                <p className="text-sm text-rose-600">{fulfillmentError}</p>
+              ) : fulfillmentRows.length === 0 ? (
                 <p className="text-sm text-gray-600">
-                  Aún no hay actividades registradas.
+                  No hay registros de fulfillment para este status.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Fecha
-                        </th>
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Status
-                        </th>
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Usuario
-                        </th>
-                        <th className="py-2 text-left font-medium text-gray-600">
-                          Observación
-                        </th>
+                        <th className="py-2 text-left font-medium text-gray-600">Bodega</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Estado</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Fecha Asignación</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Fecha Actualización</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {order.activity.map((act) => (
+                      {fulfillmentRows.map((r, idx) => (
+                        <tr key={`${r.id_bodega ?? "null"}_${idx}`} className="border-b last:border-b-0">
+                          <td className="py-2">
+                            {r.id_bodega != null ? `Bodega ${r.id_bodega}` : "-"}
+                          </td>
+                          <td className="py-2">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                r.is_used
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border border-amber-200"
+                              }`}
+                            >
+                              {r.is_used ? "Listo" : "Pendiente"}
+                            </span>
+                          </td>
+                          <td className="py-2 whitespace-nowrap">{formatDateTime(r.created_at)}</td>
+                          <td className="py-2 whitespace-nowrap">{formatDateTime(r.updated_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <p className="mt-2 text-xs text-gray-500">
+                Esta tabla audita qué bodegas ya marcaron el paso (is_used=true) y cuándo fue la última actualización.
+              </p>
+            </div>
+
+            {/* Historial de actividad */}
+            <div className="bg-white rounded-2xl shadow-md p-6">
+              <h2 className="text-xl font-semibold mb-4">Historial de actividad</h2>
+
+              {(order as any).activity?.length === 0 ? (
+                <p className="text-sm text-gray-600">Aún no hay actividades registradas.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="py-2 text-left font-medium text-gray-600">Fecha</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Status</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Usuario</th>
+                        <th className="py-2 text-left font-medium text-gray-600">Observación</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(order as any).activity.map((act: any) => (
                         <tr key={act.id_act} className="border-b last:border-b-0">
                           <td className="py-2 align-top whitespace-nowrap">
                             {formatDateTime(
-                              (act as any).fecha_actualizacion ??
-                                (act as any).created_at ??
-                                (act as any).fecha ??
-                                (act as any).fechaCreacion ??
+                              act.fecha_actualizacion ??
+                                act.created_at ??
+                                act.fecha ??
+                                act.fechaCreacion ??
                                 null
                             )}
                           </td>
                           <td className="py-2 align-top">
-                            {act.status ??
-                              (act.id_status != null ? `#${act.id_status}` : "-")}
+                            {act.status ?? (act.id_status != null ? `#${act.id_status}` : "-")}
                           </td>
                           <td className="py-2 align-top">
-                            {act.usuario_actualiza ??
-                              order.head.usuario_actualiza ??
-                              "-"}
+                            {act.usuario_actualiza ?? (order.head as any).usuario_actualiza ?? "-"}
                           </td>
                           <td className="py-2 align-top max-w-xs">
-                            <p className="text-gray-800 break-words">
-                              {act.observacion ?? "-"}
-                            </p>
+                            <p className="text-gray-800 break-words">{act.observacion ?? "-"}</p>
                           </td>
                         </tr>
                       ))}
@@ -993,7 +1051,6 @@ export function PageContent({ id }: PageContentProps) {
           </section>
         </div>
 
-        {/* Dialog global de confirmación */}
         <ConfirmDialog />
       </div>
     </div>

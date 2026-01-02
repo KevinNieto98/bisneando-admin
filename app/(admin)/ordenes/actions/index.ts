@@ -143,9 +143,10 @@ function compactItems(items: OrderDetailInput[]) {
   }
   return Array.from(map.entries()).map(([id_producto, qty]) => ({ id_producto, qty }));
 }
-
 /* =========================================================================
    Acción: inserta orden + descuenta stock con RPC
+   + 🆕 Inserta tbl_orders_fulfillment (bodegas participantes)
+   + 🆕 Inserta también registro inicial id_status=3 (en preparación) por bodega
    ========================================================================= */
 export async function createOrderAction(
   input: CreateOrderInput & { id_metodo?: number | null; id_colonia?: number | null }
@@ -164,6 +165,7 @@ export async function createOrderAction(
   let detInserted = false;
   let id_act: number | undefined;
   let stockAdjusted = false; // para saber si revertir stock en catch
+  let fulfillmentInserted = false; // 🆕 para rollback
 
   try {
     /* 1) Header -> tbl_orders_head */
@@ -221,13 +223,67 @@ export async function createOrderAction(
     detInserted = true;
     const det_count = detData?.length ?? 0;
 
+    /* 2.5) 🆕 Fulfillment por bodega -> tbl_orders_fulfillment
+       - Inserta una fila por cada bodega participante (distinct)
+       - 🆕 además inserta otra fila (misma bodega) con id_status = 3
+       - is_used inicia en false
+    */
+
+    // bodegas únicas presentes en los items
+    const bodegaSet = new Set<number>();
+    for (const it of input.items) {
+      const b = Number((it as any)?.id_bodega);
+      if (Number.isFinite(b) && b > 0) bodegaSet.add(b);
+    }
+    const bodegas = Array.from(bodegaSet);
+
+    if (bodegas.length > 0) {
+      const nowIso = new Date().toISOString();
+
+      // Nota:
+      // - Si tu tabla tiene UNIQUE(id_order,id_bodega) esto FALLARÁ.
+      //   Para soportar 2 estados por bodega, la tabla debe permitir múltiples filas,
+      //   idealmente con PK id_fulfillment o similar, y/o UNIQUE(id_order,id_bodega,id_status,created_at).
+      const fulfillmentRows = bodegas.flatMap((b) => [
+        // Estado 2 (Traslado al Almacén)
+        {
+          id_order,
+          id_bodega: b,
+          id_status: 2,
+          observacion: null,
+          usuario_actualiza: input.usuario_actualiza ?? null,
+          is_used: false,
+          fecha_actualizacion: nowIso,
+          created_by: "APP DEFAULT",
+        },
+        // Estado 3 (En Preparación)
+        {
+          id_order,
+          id_bodega: b,
+          id_status: 3,
+          observacion: null,
+          usuario_actualiza: input.usuario_actualiza ?? null,
+          is_used: false,
+          fecha_actualizacion: nowIso,
+          created_by: "APP DEFAULT",
+        },
+      ]);
+
+      const { error: fullErr } = await supabase
+        .from("tbl_orders_fulfillment")
+        .insert(fulfillmentRows);
+
+      if (fullErr) throw new Error(fullErr.message);
+      fulfillmentInserted = true;
+    }
+
     /* 3) Descuento de stock (ATÓMICO en DB vía RPC) */
     const itemsComp = compactItems(input.items);
 
-    const { data: decOk, error: decErr } = await supabase.rpc(
-      "rpc_adjust_stock",
-      { p_items: itemsComp, p_sign: -1 }
-    );
+    const { data: decOk, error: decErr } = await supabase.rpc("rpc_adjust_stock", {
+      p_items: itemsComp,
+      p_sign: -1,
+    });
 
     if (decErr) throw new Error(decErr.message);
     if (!decOk) throw new Error("No fue posible descontar el stock.");
@@ -257,6 +313,12 @@ export async function createOrderAction(
     try {
       if (id_order) {
         await supabase.from("tbl_activity_orders").delete().eq("id_order", id_order);
+
+        // 🆕 rollback fulfillment si se alcanzó a insertar
+        if (fulfillmentInserted) {
+          await supabase.from("tbl_orders_fulfillment").delete().eq("id_order", id_order);
+        }
+
         if (detInserted) {
           await supabase.from("tbl_orders_det").delete().eq("id_order", id_order);
         }
@@ -984,7 +1046,8 @@ export async function getTodayOrdersSummaryAction(): Promise<TodayOrdersSummary>
 
 export async function updateOrderStatusByIdAction(params: {
   id_order: number;
-  id_status_destino: number;           // <- aquí pasas 5, 6, 7, etc.
+  id_bodega?: number; // 🆕 ahora es opcional
+  id_status_destino: number;
   observacion?: string | null;
   usuario_actualiza?: string | null;
 }): Promise<{
@@ -992,8 +1055,16 @@ export async function updateOrderStatusByIdAction(params: {
   from_status: number;
   to_status: number;
   id_act?: number;
+  head_updated?: boolean;
+  pending_reason?: string;
 }> {
-  const { id_order, id_status_destino, observacion, usuario_actualiza } = params;
+  const {
+    id_order,
+    id_bodega,
+    id_status_destino,
+    observacion,
+    usuario_actualiza,
+  } = params;
 
   if (!id_order) {
     throw new Error("Falta id_order para actualizar la orden.");
@@ -1018,9 +1089,8 @@ export async function updateOrderStatusByIdAction(params: {
 
   const fromStatus = head.id_status as number;
 
-  // 2) Si el destino es 6 (rechazada), usamos la lógica especial que ya tienes
+  // 2) Si el destino es 6 (rechazada), mantenemos tu lógica especial
   if (id_status_destino === 6) {
-    // Aquí se devuelve stock, se actualiza head, activity e id_max_log
     await rejectOrderAction({
       id_order,
       observacion: observacion ?? "Orden rechazada",
@@ -1031,16 +1101,205 @@ export async function updateOrderStatusByIdAction(params: {
       id_order,
       from_status: fromStatus,
       to_status: 6,
+      head_updated: true,
     };
   }
-
-  // 3) Para otros estados (5 terminada, 7 problemas, etc.) actualizamos directo
 
   const nowIso = new Date().toISOString();
   const usuario = usuario_actualiza ?? "admin";
   const obs = observacion ?? null;
 
-  // 3.1) Actualizar encabezado
+  // ============================================================
+  // 🆕 Gate de fulfillment (2→3 y 3→4)
+  // ============================================================
+  const isGateTransition =
+    (fromStatus === 2 && id_status_destino === 3) ||
+    (fromStatus === 3 && id_status_destino === 4);
+
+  if (isGateTransition) {
+    // 🔒 VALIDACIÓN CLAVE (aunque id_bodega sea opcional en params,
+    // en gate es obligatorio)
+    if (!Number.isFinite(id_bodega) || Number(id_bodega) <= 0) {
+      throw new Error(
+        "Falta id_bodega. Para avanzar este estado es obligatorio indicar la bodega que ejecuta la acción."
+      );
+    }
+
+    const bodegaId = Number(id_bodega);
+
+    // ✅ IMPORTANTÍSIMO:
+    // El fulfillment que se marca como usado corresponde al PASO ACTUAL (fromStatus),
+    // no al destino.
+    // 2→3 => se completa paso 2
+    // 3→4 => se completa paso 3
+    const stepStatusToComplete = fromStatus;
+
+    // A) Buscar fulfillment del paso A COMPLETAR (fromStatus)
+    const { data: existingFul, error: fulFindErr } = await supabase
+      .from("tbl_orders_fulfillment")
+      .select("id_fulfillment,is_used")
+      .eq("id_order", id_order)
+      .eq("id_bodega", bodegaId)
+      .eq("id_status", stepStatusToComplete)
+      .maybeSingle();
+
+    if (fulFindErr) {
+      throw new Error(
+        `No se pudo leer fulfillment de la bodega: ${fulFindErr.message}`
+      );
+    }
+
+    let id_fulfillment = existingFul?.id_fulfillment ?? null;
+
+    // B) Crear fulfillment si no existe (on-demand) PERO con el paso correcto (fromStatus)
+    if (!id_fulfillment) {
+      const { data: insFul, error: insErr } = await supabase
+        .from("tbl_orders_fulfillment")
+        .insert([
+          {
+            id_order,
+            id_bodega: bodegaId,
+            id_status: stepStatusToComplete, // ✅ antes estaba id_status_destino
+            is_used: false,
+            observacion: null,
+            usuario_actualiza: usuario,
+            fecha_actualizacion: nowIso,
+            created_by: "AUTO ON UPDATE",
+          },
+        ])
+        .select("id_fulfillment")
+        .single();
+
+      if (insErr) {
+        throw new Error(
+          `No se pudo crear fulfillment del paso: ${insErr.message}`
+        );
+      }
+
+      id_fulfillment = insFul?.id_fulfillment ?? null;
+    }
+
+    if (!id_fulfillment) {
+      throw new Error("No se pudo resolver el fulfillment de la bodega.");
+    }
+
+    // C) Marcar fulfillment como usado (completando el paso actual)
+    const { error: fulUpErr } = await supabase
+      .from("tbl_orders_fulfillment")
+      .update({
+        is_used: true,
+        updated_by: usuario,
+        updated_at: nowIso,
+        observacion: obs,
+      })
+      .eq("id_fulfillment", id_fulfillment);
+
+    if (fulUpErr) {
+      throw new Error(
+        `No se pudo actualizar fulfillment: ${fulUpErr.message}`
+      );
+    }
+
+    // D) Validar si TODAS las bodegas completaron el paso actual (fromStatus)
+    const { data: allFuls, error: allErr } = await supabase
+      .from("tbl_orders_fulfillment")
+      .select("is_used")
+      .eq("id_order", id_order)
+      .eq("id_status", stepStatusToComplete); // ✅ antes estaba id_status_destino
+
+    if (allErr) {
+      throw new Error(`No se pudo validar fulfillments: ${allErr.message}`);
+    }
+
+    const allUsed =
+      Array.isArray(allFuls) && allFuls.length > 0
+        ? allFuls.every((f) => f.is_used === true)
+        : false;
+
+    // ✅ NUEVO: REGISTRAR ACTIVITY SIEMPRE (aunque el head NO avance)
+    // Para auditoría: registramos la intención del avance (to_status = destino)
+    // y ponemos una observación indicando si quedó pendiente.
+    const activityObsPending = (() => {
+      const base = obs ? String(obs) : "";
+      const suffix = ` | Gate step=${stepStatusToComplete} | bodega=${bodegaId} | head_updated=${allUsed ? "true" : "false"}`;
+      return base ? `${base}${suffix}` : suffix.trim();
+    })();
+
+    const { data: actDataGate, error: actErrGate } = await supabase
+      .from("tbl_activity_orders")
+      .insert([
+        {
+          id_order,
+          // Registramos el destino solicitado (3 o 4) para ver "hacia dónde iba"
+          id_status: id_status_destino,
+          fecha_actualizacion: nowIso,
+          usuario_actualiza: usuario,
+          observacion: activityObsPending,
+        },
+      ])
+      .select("id_act")
+      .single();
+
+    if (actErrGate) {
+      throw new Error(
+        `No se pudo insertar actividad (gate): ${actErrGate.message}`
+      );
+    }
+
+    const id_act_gate = actDataGate?.id_act as number | undefined;
+
+    // (Opcional) Puedes actualizar id_max_log aunque el head no cambie,
+    // así siempre apuntas al último evento de auditoría.
+    if (id_act_gate) {
+      await supabase
+        .from("tbl_orders_head")
+        .update({ id_max_log: id_act_gate })
+        .eq("id_order", id_order);
+    }
+
+    // Si todavía faltan bodegas, NO avanzamos el estado global, pero ya quedó activity.
+    if (!allUsed) {
+      return {
+        id_order,
+        from_status: fromStatus,
+        to_status: id_status_destino,
+        id_act: id_act_gate,
+        head_updated: false,
+        pending_reason:
+          "Aún faltan bodegas por completar este paso. El estado global no se actualiza.",
+      };
+    }
+
+    // E) Todas listas → actualizar HEAD (estado global sí avanza)
+    const { error: upErr } = await supabase
+      .from("tbl_orders_head")
+      .update({
+        id_status: id_status_destino,
+        observacion: obs,
+        usuario_actualiza: usuario,
+        fecha_actualizacion: nowIso,
+      })
+      .eq("id_order", id_order);
+
+    if (upErr) {
+      throw new Error(`No se pudo actualizar encabezado: ${upErr.message}`);
+    }
+
+    // Ya insertamos activity arriba (para auditoría). Reusamos ese id_act.
+    // Si prefieres, puedes insertar otra activity “global advanced”, pero NO es necesario.
+    return {
+      id_order,
+      from_status: fromStatus,
+      to_status: id_status_destino,
+      id_act: id_act_gate,
+      head_updated: true,
+    };
+  }
+
+  // ============================================================
+  // Estados NO gate (5,7, etc.) → flujo normal
+  // ============================================================
+
   const { error: upErr } = await supabase
     .from("tbl_orders_head")
     .update({
@@ -1052,46 +1311,34 @@ export async function updateOrderStatusByIdAction(params: {
     .eq("id_order", id_order);
 
   if (upErr) {
-    throw new Error(
-      `No se pudo actualizar el encabezado de la orden: ${upErr.message}`
-    );
+    throw new Error(`No se pudo actualizar encabezado: ${upErr.message}`);
   }
-
-  // 3.2) Insertar actividad
-  const actividadRow = {
-    id_order,
-    id_status: id_status_destino,
-    fecha_actualizacion: nowIso,
-    usuario_actualiza: usuario,
-    observacion: obs,
-  };
 
   const { data: actData, error: actErr } = await supabase
     .from("tbl_activity_orders")
-    .insert([actividadRow])
+    .insert([
+      {
+        id_order,
+        id_status: id_status_destino,
+        fecha_actualizacion: nowIso,
+        usuario_actualiza: usuario,
+        observacion: obs,
+      },
+    ])
     .select("id_act")
     .single();
 
   if (actErr) {
-    throw new Error(
-      `No se pudo insertar la actividad de actualización: ${actErr.message}`
-    );
+    throw new Error(`No se pudo insertar actividad: ${actErr.message}`);
   }
 
   const id_act = actData?.id_act as number | undefined;
 
-  // 3.3) Actualizar id_max_log en el header
   if (id_act) {
-    const { error: logErr } = await supabase
+    await supabase
       .from("tbl_orders_head")
       .update({ id_max_log: id_act })
       .eq("id_order", id_order);
-
-    if (logErr) {
-      throw new Error(
-        `No se pudo actualizar id_max_log de la orden: ${logErr.message}`
-      );
-    }
   }
 
   return {
@@ -1099,8 +1346,10 @@ export async function updateOrderStatusByIdAction(params: {
     from_status: fromStatus,
     to_status: id_status_destino,
     id_act,
+    head_updated: true,
   };
 }
+
 
 
 export async function advanceOrderToNextStatusAction(params: {
@@ -1366,4 +1615,110 @@ export async function getActivityOrdersByOrderIdAction(id_order: number) {
     usuario_actualiza: r.usuario_actualiza,
     observacion: r.observacion,
   }))
+}
+
+
+/* =========================================================================
+   Acción: obtener fulfillments por bodega (tbl_orders_fulfillment)
+   - Similar a getOrdersDetByBodegaAction pero apuntando a la tabla fulfillment
+   ========================================================================= */
+
+export type TblOrdersFulfillmentRow = {
+  id_fulfillment: number;
+  id_order: number;
+  id_bodega: number;
+  id_status: number;
+  is_used: boolean;
+  observacion: string | null;
+
+  // campos opcionales según tu tabla (si existen)
+  usuario_actualiza?: string | null;
+  fecha_actualizacion?: string | null;
+
+  created_by?: string | null;
+  created_at?: string | null;
+
+  updated_by?: string | null;
+  updated_at?: string | null;
+};
+
+export async function getOrdersFulfillmentByBodegaAction(
+  id_bodega: number,
+  id_status?: number | null // ✅ NUEVO (opcional)
+): Promise<TblOrdersFulfillmentRow[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; // o ANON_KEY
+
+  if (!base || !apiKey) {
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+    return [];
+  }
+
+  if (!Number.isFinite(id_bodega) || id_bodega <= 0) {
+    console.error("id_bodega inválido:", id_bodega);
+    return [];
+  }
+
+  // ✅ Si te pasan id_status, lo validamos (si viene inválido, retornamos vacío)
+  const status = id_status == null ? null : Number(id_status);
+  if (status != null && (!Number.isFinite(status) || status <= 0)) {
+    console.error("id_status inválido:", id_status);
+    return [];
+  }
+
+  // Query params PostgREST
+  const qs = new URLSearchParams();
+
+  // Ajusta el select exactamente a las columnas que tengas en tbl_orders_fulfillment
+  qs.set(
+    "select",
+    [
+      "id_fulfillment",
+      "id_order",
+      "id_bodega",
+      "id_status",
+      "is_used",
+      "observacion",
+      "usuario_actualiza",
+      "fecha_actualizacion",
+      "created_by",
+      "created_at",
+      "updated_by",
+      "updated_at",
+    ].join(",")
+  );
+
+  qs.set("id_bodega", `eq.${id_bodega}`);
+
+  // ✅ Filtrar por status SOLO si viene indicado
+  if (status != null) {
+    qs.set("id_status", `eq.${status}`);
+  }
+
+  // Orden: más recientes primero por orden, y luego por fulfillment
+  qs.set("order", "id_order.desc,id_fulfillment.desc");
+
+  const url = `${base}/rest/v1/tbl_orders_fulfillment?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: apiKey,
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error(
+      "Error al obtener fulfillments por bodega:",
+      res.status,
+      await res.text()
+    );
+    return [];
+  }
+
+  const data = (await res.json().catch(() => [])) as TblOrdersFulfillmentRow[];
+  return Array.isArray(data) ? data : [];
 }

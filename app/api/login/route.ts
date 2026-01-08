@@ -110,9 +110,9 @@ export async function POST(req: NextRequest) {
     };
 
     const mensajeErrorByPlatform: Record<Platform, string> = {
-      APP: "Privilegios insuficientes. Se requiere perfil = 1 para APP.",
-      WEB: "Privilegios insuficientes. Se requiere perfil = 2 para WEB.",
-      BODEGA: "Privilegios insuficientes. Se requiere perfil = 3 para BODEGA.",
+      APP: "Error de perfilamiento.",
+      WEB: "Privilegios insuficientes.",
+      BODEGA: "Privilegios insuficientes.",
     };
 
     const requiredPerfil = requiredPerfilByPlatform[platform];

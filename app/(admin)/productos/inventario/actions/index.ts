@@ -26,9 +26,11 @@ export type ProductoConImagenes = ProductoRow & {
 type GetProductosOpts = {
   onlyActive?: boolean;
   search?: string;          // busca en nombre y slug (ILIKE)
-  categoriaId?: number;     // filtro por categoría
+  categoriaId?: number;   
+  id_bodega?: number  // filtro por categoría
   orderBy?: "id_producto" | "nombre_producto" | "precio" | "qty";
   orderDir?: "asc" | "desc";
+
 };
 
 export async function getProductosConImagenesAction(
@@ -37,7 +39,9 @@ export async function getProductosConImagenesAction(
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!base || !apiKey) {
-    console.error("Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+    console.error(
+      "Faltan variables de entorno: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
     return [];
   }
 
@@ -45,22 +49,28 @@ export async function getProductosConImagenesAction(
     onlyActive = false,
     search,
     categoriaId,
+    id_bodega, // ✅ nuevo parámetro opcional
     orderBy = "id_producto",
     orderDir = "asc",
   } = opts;
 
   // ---- 1) Productos
   const p = new URLSearchParams();
-  p.set("select", "id_producto,nombre_producto,is_active,qty,precio,id_categoria,descripcion,id_marca,slug");
+  p.set(
+    "select",
+    "id_producto,nombre_producto,is_active,qty,precio,id_categoria,descripcion,id_marca,slug"
+  );
+
   // filtros
   if (onlyActive) p.set("is_active", "eq.true");
   if (typeof categoriaId === "number") p.set("id_categoria", `eq.${categoriaId}`);
 
+  // ✅ filtro por bodega (solo si viene)
+  if (typeof id_bodega === "number") p.set("id_bodega", `eq.${id_bodega}`);
+
   // search: PostgREST or=(col.ilike.*term*,col2.ilike.*term*)
   if (search && search.trim()) {
     const term = search.trim().replace(/\s+/g, " ");
-    // ojo: * es el wildcard, hay que URL-encodear las comas y paréntesis
-    // Ejemplo: or=(nombre_producto.ilike.*laptop*,slug.ilike.*laptop*)
     p.set(
       "or",
       `(nombre_producto.ilike.*${encodeURIComponent(term)}*,slug.ilike.*${encodeURIComponent(term)}*)`
@@ -90,7 +100,7 @@ export async function getProductosConImagenesAction(
 
   // ---- 2) Imágenes de todos los productos de una sola vez
   const ids = productos.map((r) => r.id_producto);
-  // PostgREST: id_producto=in.(1,2,3)
+
   const urlImgs =
     `${base}/rest/v1/tbl_imagenes_producto` +
     `?select=id_imagen,id_producto,url_imagen,is_principal,orden` +
@@ -121,9 +131,12 @@ export async function getProductosConImagenesAction(
 
   return productos.map((prod) => ({
     ...prod,
-    imagenes: (byProd.get(prod.id_producto) ?? []).sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
+    imagenes: (byProd.get(prod.id_producto) ?? []).sort(
+      (a, b) => (a.orden ?? 0) - (b.orden ?? 0)
+    ),
   }));
 }
+
 
 // actions/update-producto-activo.client.ts
 import { supabase } from "@/utils/supabase/client";

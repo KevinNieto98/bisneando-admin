@@ -60,7 +60,10 @@ export async function getProductosConImagenesAction(
     "select",
     "id_producto,nombre_producto,is_active,qty,precio,id_categoria,descripcion,id_marca,slug"
   );
+  // 🔒 siempre excluir productos en revisión
+  p.set("en_revision", "eq.false");
 
+    
   // filtros
   if (onlyActive) p.set("is_active", "eq.true");
   if (typeof categoriaId === "number") p.set("id_categoria", `eq.${categoriaId}`);

@@ -265,11 +265,18 @@ export async function updateProductoAction(
     id_categoria: number;
     descripcion: string;
     id_marca?: number | null;
+    en_revision?: boolean; // 👈 ahora es opcional
   }
 ) {
+  // 🔒 Default: si no viene, siempre se manda false
+  const finalPayload = {
+    ...payload,
+    en_revision: payload.en_revision ?? false,
+  };
+
   const { data, error } = await supabase
     .from("tbl_productos")
-    .update(payload)
+    .update(finalPayload)
     .eq("id_producto", id_producto)
     .select()
     .single();

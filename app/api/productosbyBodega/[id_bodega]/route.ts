@@ -1,15 +1,21 @@
 import { getMarcasAction } from "@/app/(admin)/mantenimiento/marcas/actions"
 import { getProductosConImagenesAction } from "@/app/(admin)/productos/inventario/actions"
 import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 
 type Params = {
   id_bodega: string
 }
 
-export async function GET(req: Request, context: { params: Params }) {
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<Params> }
+) {
   try {
-    const { searchParams } = new URL(req.url)
-    const { id_bodega: idBodegaRaw } = context.params
+    const { searchParams } = new URL(request.url)
+
+    // ✅ En tu typing, params viene como Promise
+    const { id_bodega: idBodegaRaw } = await context.params
 
     const id_bodega = Number(idBodegaRaw)
     if (!idBodegaRaw || Number.isNaN(id_bodega) || id_bodega <= 0) {
@@ -27,8 +33,11 @@ export async function GET(req: Request, context: { params: Params }) {
       : undefined
 
     const orderBy =
-      (searchParams.get("orderBy") as "id_producto" | "nombre_producto" | "precio") ??
-      "id_producto"
+      (searchParams.get("orderBy") as
+        | "id_producto"
+        | "nombre_producto"
+        | "precio") ?? "id_producto"
+
     const orderDir = (searchParams.get("orderDir") as "asc" | "desc") ?? "asc"
 
     // 🔹 Traer productos y marcas en paralelo

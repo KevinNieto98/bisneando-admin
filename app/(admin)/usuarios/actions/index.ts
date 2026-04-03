@@ -9,6 +9,7 @@ export interface Usuario {
   email: string
   id_perfil: number
   is_active: boolean
+  id_bodega?: number | null
 }
 
 export async function getUsuariosAction(): Promise<Usuario[]> {
@@ -30,6 +31,26 @@ export async function getUsuariosAction(): Promise<Usuario[]> {
 
   if (!res.ok) {
     console.error('Error al obtener usuarios:', res.status, await res.text())
+    return []
+  }
+
+  return res.json()
+}
+
+export async function getUsuariosByPerfilAction(perfilId: number): Promise<Usuario[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  if (!base || !apiKey) return []
+
+  const url = `${base}/rest/v1/tbl_usuarios?select=id,nombre,apellido,phone,email,id_perfil,is_active,id_bodega&id_perfil=eq.${perfilId}&order=id.asc`
+
+  const res = await fetch(url, {
+    headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+    cache: "no-store",
+  })
+
+  if (!res.ok) {
+    console.error("Error al obtener usuarios por perfil:", res.status, await res.text())
     return []
   }
 

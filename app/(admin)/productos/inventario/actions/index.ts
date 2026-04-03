@@ -30,7 +30,7 @@ type GetProductosOpts = {
   id_bodega?: number  // filtro por categoría
   orderBy?: "id_producto" | "nombre_producto" | "precio" | "qty";
   orderDir?: "asc" | "desc";
-
+  showAll?: boolean; // 👈 nuevo
 };
 
 export async function getProductosConImagenesAction(
@@ -52,6 +52,7 @@ export async function getProductosConImagenesAction(
     id_bodega, // ✅ nuevo parámetro opcional
     orderBy = "id_producto",
     orderDir = "asc",
+    showAll = false, // 👈 por defecto NO muestra todo
   } = opts;
 
   // ---- 1) Productos
@@ -60,8 +61,10 @@ export async function getProductosConImagenesAction(
     "select",
     "id_producto,nombre_producto,is_active,qty,precio,id_categoria,descripcion,id_marca,slug"
   );
-  // 🔒 siempre excluir productos en revisión
-  p.set("en_revision", "eq.false");
+ // 🔒 excluir productos en revisión SOLO si showAll es false
+  if (!showAll) {
+    p.set("en_revision", "eq.false");
+  }
 
     
   // filtros

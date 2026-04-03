@@ -13,7 +13,7 @@ export const TopMenu = ({ user }: { user: User }) => {
 
   return (
     <nav className="sticky top-0 z-50 w-full border-yellow-600 bg-[#FACC15] backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2">
+      <div className="flex items-center justify-between px-4 py-2">
         {/* Logo */}
         <Link href="/" aria-label="Ir al inicio" className="inline-flex items-center">
           <img src="/bisneando.svg" alt="Bisneando Logo" className="h-10 w-auto" />

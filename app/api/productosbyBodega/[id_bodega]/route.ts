@@ -49,6 +49,7 @@ export async function GET(
         id_bodega,
         orderBy,
         orderDir,
+        showAll: true
       }),
       getMarcasAction(),
     ])

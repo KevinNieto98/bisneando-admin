@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function DeliveriesPage() {
   return (
     <UsuariosTablaByPerfil
-      perfilId={4}
+      perfilId={6}
       title="Deliveries"
       subtitle="Usuarios registrados con perfil de delivery"
       icon={<Truck className="h-6 w-6 text-neutral-700" />}

@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   XCircle,
   Download,
+  Truck,
 } from "lucide-react";
 import {
   getOrdersHeadAction,
@@ -26,6 +27,8 @@ type FiltroEstado = "todas" | "rechazadas" | "completadas";
 type Orden = {
   id_orden: string;
   uid: string;
+  uid_delivery: string | null;
+  nombre_delivery: string | null;
   productos: number;
   fecha_creacion: string; // ISO
   fecha_actualizacion?: string | null;
@@ -49,11 +52,11 @@ const formatoFecha = (iso: string) => new Date(iso).toLocaleString();
 
 // 🔥 Lógica de estados:
 // 1        → nueva
-// 2,3,4    → proceso
+// 2,3,4,8  → proceso
 // 5,6      → finalizada
 const mapStatus = (id_status: number): StatusUI => {
   if (id_status === 1) return "nueva";
-  if (id_status >= 2 && id_status <= 4) return "proceso";
+  if ((id_status >= 2 && id_status <= 4) || id_status === 8) return "proceso";
   if (id_status === 5 || id_status === 6) return "finalizada";
   return "finalizada";
 };
@@ -64,9 +67,10 @@ const mapOrderHeadToOrden = (o: OrderHead): Orden => {
   return {
     id_orden: String(o.id_order),
     uid: o.uid,
+    uid_delivery: o.uid_delivery ?? null,
+    nombre_delivery: o.nombre_delivery ?? null,
     productos: o.qty,
     fecha_creacion: o.fecha_creacion ?? new Date().toISOString(),
-    // asegúrate de incluir fecha_actualizacion en el select de la API
     fecha_actualizacion: (o as any).fecha_actualizacion ?? null,
     total: o.total,
     colonia: o.nombre_colonia ?? "Sin colonia",
@@ -137,11 +141,14 @@ export function PageContent() {
   const estadoParam = searchParams.get("estado");
 
   const [tab, setTab] = useState<
-    "nuevas" | "proceso" | "finalizadas" | "problemas"
+    "nuevas" | "proceso" | "sin-delivery" | "motorista" | "finalizadas" | "problemas"
   >("proceso");
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [queryNuevas, setQueryNuevas] = useState("");
   const [queryProceso, setQueryProceso] = useState("");
+  const [querySinDelivery, setQuerySinDelivery] = useState("");
+  const [queryMotorista, setQueryMotorista] = useState("");
+  const [filtroDelivery, setFiltroDelivery] = useState<string>("todos");
   const [queryFinal, setQueryFinal] = useState("");
   const [queryProblemas, setQueryProblemas] = useState("");
   const [filtroEstadoFinal, setFiltroEstadoFinal] =
@@ -169,6 +176,8 @@ export function PageContent() {
     if (estadoParam === "nueva") setTab("nuevas");
     else if (estadoParam === "finalizada") setTab("finalizadas");
     else if (estadoParam === "proceso") setTab("proceso");
+    else if (estadoParam === "sin-delivery") setTab("sin-delivery");
+    else if (estadoParam === "motorista") setTab("motorista");
     else if (estadoParam === "problemas") setTab("problemas");
   }, [estadoParam]);
 
@@ -444,10 +453,48 @@ export function PageContent() {
   const dataProceso = useMemo(
     () =>
       ordenes
-        .filter((o) => o.uiStatus === "proceso" && coincide(o, queryProceso))
+        .filter((o) => o.uiStatus === "proceso" && o.id_status !== 4 && coincide(o, queryProceso))
         .slice()
         .sort(sortByOldest),
     [ordenes, queryProceso]
+  );
+
+  const dataSinDelivery = useMemo(
+    () =>
+      ordenes
+        .filter((o) => o.id_status === 4 && coincide(o, querySinDelivery))
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, querySinDelivery]
+  );
+
+  // Lista única de deliveries para el filtro (derivada de las órdenes con status 8)
+  const deliveriesEnTabla = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { uid: string; nombre: string }[] = [];
+    ordenes
+      .filter((o) => o.id_status === 8 && o.uid_delivery)
+      .forEach((o) => {
+        if (!seen.has(o.uid_delivery!)) {
+          seen.add(o.uid_delivery!);
+          list.push({ uid: o.uid_delivery!, nombre: o.nombre_delivery ?? o.uid_delivery! });
+        }
+      });
+    return list.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [ordenes]);
+
+  // 🔽 Con Motorista Asignado: id_status = 8
+  const dataMotorista = useMemo(
+    () =>
+      ordenes
+        .filter((o) => {
+          if (o.id_status !== 8) return false;
+          if (filtroDelivery !== "todos" && o.uid_delivery !== filtroDelivery) return false;
+          return coincide(o, queryMotorista);
+        })
+        .slice()
+        .sort(sortByOldest),
+    [ordenes, queryMotorista, filtroDelivery]
   );
 
   // 🔽 Problemas: id_status = 7, mismas funcionalidades que Nuevas/Proceso
@@ -535,6 +582,12 @@ export function PageContent() {
   const handleExportProceso = () =>
     exportOrdersToCsv("ordenes_en_proceso.csv", dataProceso);
 
+  const handleExportSinDelivery = () =>
+    exportOrdersToCsv("ordenes_sin_delivery.csv", dataSinDelivery);
+
+  const handleExportMotorista = () =>
+    exportOrdersToCsv("ordenes_con_motorista.csv", dataMotorista);
+
   const handleExportProblemas = () =>
     exportOrdersToCsv("ordenes_con_problemas.csv", dataProblemas);
 
@@ -564,15 +617,20 @@ export function PageContent() {
       <Tabs
         value={tab}
         onValueChange={(v) =>
-          setTab(v as "nuevas" | "proceso" | "finalizadas" | "problemas")
+          setTab(v as "nuevas" | "proceso" | "sin-delivery" | "motorista" | "finalizadas" | "problemas")
         }
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="nuevas">Órdenes Nuevas</TabsTrigger>
           <TabsTrigger value="proceso">Órdenes en Proceso</TabsTrigger>
+          <TabsTrigger value="sin-delivery">Sin Delivery</TabsTrigger>
+          <TabsTrigger value="motorista">
+            <Truck className="w-3.5 h-3.5 mr-1 shrink-0" />
+            Con Motorista
+          </TabsTrigger>
           <TabsTrigger value="finalizadas">Órdenes Finalizadas</TabsTrigger>
-          <TabsTrigger value="problemas">Órdenes con Problemas</TabsTrigger>
+          <TabsTrigger value="problemas">Con Problemas</TabsTrigger>
         </TabsList>
 
         {/* NUEVAS */}
@@ -647,6 +705,42 @@ export function PageContent() {
           </div>
         </TabsContent>
 
+        {/* SIN DELIVERY (id_status = 4) */}
+        <TabsContent value="sin-delivery">
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full md:max-w-md">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={querySinDelivery}
+                  onChange={(e) => setQuerySinDelivery(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportSinDelivery}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                disabled={dataSinDelivery.length === 0}
+                title="Exportar órdenes sin delivery asignado"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+            </div>
+
+            <Table
+              data={dataSinDelivery}
+              columns={columnasConAcciones}
+              getRowId={getRowId}
+              emptyText="No hay órdenes sin delivery asignado"
+              ariaLabel="Tabla de órdenes sin delivery"
+            />
+          </div>
+        </TabsContent>
+
         {/* PROBLEMAS (id_status = 7, mismas funcionalidades que Nuevas/Proceso) */}
         <TabsContent value="problemas">
           <div className="mt-4 space-y-4">
@@ -679,6 +773,67 @@ export function PageContent() {
               getRowId={getRowId}
               emptyText="No hay órdenes con problemas"
               ariaLabel="Tabla de órdenes con problemas"
+            />
+          </div>
+        </TabsContent>
+
+        {/* CON MOTORISTA ASIGNADO (id_status = 8) */}
+        <TabsContent value="motorista">
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              {/* Buscador */}
+              <div className="relative w-full md:max-w-xs">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+                <input
+                  value={queryMotorista}
+                  onChange={(e) => setQueryMotorista(e.target.value)}
+                  placeholder="Buscar por ID, colonia o usuario…"
+                  className="w-full rounded-xl border border-neutral-300 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                />
+              </div>
+
+              {/* Filtro por motorista */}
+              <select
+                value={filtroDelivery}
+                onChange={(e) => setFiltroDelivery(e.target.value)}
+                className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-300 md:max-w-xs w-full"
+              >
+                <option value="todos">Todos los motoristas</option>
+                {deliveriesEnTabla.map((d) => (
+                  <option key={d.uid} value={d.uid}>{d.nombre}</option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={handleExportMotorista}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-50 disabled:opacity-60"
+                disabled={dataMotorista.length === 0}
+                title="Exportar órdenes con motorista asignado"
+              >
+                <Download className="h-4 w-4" />
+                Exportar
+              </button>
+            </div>
+
+            <Table
+              data={dataMotorista}
+              columns={[
+                ...columnasBase,
+                {
+                  header: "Motorista",
+                  align: "left",
+                  cell: (r) => (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-neutral-800">
+                      <Truck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      {r.nombre_delivery ?? "—"}
+                    </span>
+                  ),
+                },
+              ]}
+              getRowId={getRowId}
+              emptyText="No hay órdenes con motorista asignado"
+              ariaLabel="Tabla de órdenes con motorista"
             />
           </div>
         </TabsContent>

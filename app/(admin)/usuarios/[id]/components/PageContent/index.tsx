@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, startTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Title, Button, Input, Alert, ConfirmDialog } from "@/components";
 import { UserPlus, Save, Eraser, Mail, Ban } from "lucide-react";
 import { sendResetLinkAction, signupAction } from "@/app/auth/actions";
@@ -25,6 +26,7 @@ export function PageContent({
   userId,
 }: PageContentProps) {
   const isEdit = mode === "edit";
+  const router = useRouter();
 
   // estado del formulario
   const [nombre, setNombre] = useState("");
@@ -222,17 +224,7 @@ export function PageContent({
                 return resolve();
               }
 
-              if ((res as any).status === "pending_confirmation") {
-                mostrarAlerta(
-                  "Registro creado",
-                  "Revisa tu correo para confirmar la cuenta antes de iniciar sesión.",
-                  "info"
-                );
-              } else {
-                mostrarAlerta("Éxito", "Usuario creado correctamente.", "success");
-              }
-
-              hardClear();
+              router.push("/usuarios");
             } catch (err: any) {
               console.error(err);
               mostrarAlerta("Error inesperado", err?.message ?? "Ocurrió un error inesperado.", "danger");

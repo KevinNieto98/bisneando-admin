@@ -48,13 +48,20 @@ export async function postPerfilAction(
   nombre_perfil: string,
   is_active: boolean
 ): Promise<PerfilRow> {
+  console.log("[postPerfilAction] Payload enviado:", { nombre_perfil, is_active });
+
   const { data, error } = await supabase
     .from("tbl_perfiles")
     .insert([{ nombre_perfil, is_active }])
     .select("id_perfil,nombre_perfil,is_active")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[postPerfilAction] Error completo:", JSON.stringify(error, null, 2));
+    throw new Error(error.message);
+  }
+
+  console.log("[postPerfilAction] Éxito:", JSON.stringify(data, null, 2));
   return data as PerfilRow;
 }
 

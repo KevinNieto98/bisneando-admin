@@ -15,6 +15,7 @@ import {
   CheckSquare,
   AlertTriangle,
   ArrowRight,
+  Truck,
 } from "lucide-react";
 
 import { useRouter } from "next/navigation";
@@ -27,6 +28,7 @@ import {
   updateOrderStatusByIdAction,
   advanceOrderToNextStatusAction,
   getFulfillmentByOrderIdAndStatusAction,
+  assignDeliveryAction,
 } from "../../../actions";
 
 /* =====================
@@ -119,6 +121,26 @@ async function getStatusOrdersAction(): Promise<StatusOrder[]> {
   return data;
 }
 
+type DeliveryUser = {
+  id: string;
+  nombre: string | null;
+  apellido: string | null;
+};
+
+async function getDeliveryUsersAction(): Promise<DeliveryUser[]> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!base || !apiKey) return [];
+
+  const url = `${base}/rest/v1/tbl_usuarios?select=id,nombre,apellido&id_perfil=eq.6&is_active=eq.true&order=nombre.asc`;
+  const res = await fetch(url, {
+    headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 /* =====================
    Skeleton de la página
    ===================== */
@@ -208,6 +230,11 @@ export function PageContent({ id }: PageContentProps) {
   );
   const [selectedStatusId, setSelectedStatusId] = useState<number | null>(null);
 
+  // Delivery assignment (id_status === 4)
+  const [deliveryUsers, setDeliveryUsers] = useState<DeliveryUser[]>([]);
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>("");
+  const [assigningDelivery, setAssigningDelivery] = useState(false);
+
   // ✅ Fulfillment state (filtrado por el status actual de la orden)
   const [fulfillmentRows, setFulfillmentRows] = useState<FulfillmentRow[]>([]);
   const [fulfillmentLoading, setFulfillmentLoading] = useState(false);
@@ -260,6 +287,12 @@ export function PageContent({ id }: PageContentProps) {
       active = false;
     };
   }, [id]);
+
+  // Cargar deliveries cuando la orden está en status 4
+  useEffect(() => {
+    if (order?.head.id_status !== 4) return;
+    getDeliveryUsersAction().then(setDeliveryUsers).catch(() => setDeliveryUsers([]));
+  }, [order?.head.id_status]);
 
   // Cargar catálogo de status para el select (una vez)
   useEffect(() => {
@@ -423,6 +456,43 @@ export function PageContent({ id }: PageContentProps) {
     });
   };
 
+  const handleAssignDelivery = () => {
+    if (!order || !selectedDeliveryId) return;
+    const delivery = deliveryUsers.find((u) => u.id === selectedDeliveryId);
+    if (!delivery) return;
+    const nombreDelivery = `${delivery.nombre ?? ""} ${delivery.apellido ?? ""}`.trim();
+
+    openConfirm({
+      titulo: "Asignar delivery",
+      mensaje: `¿Deseas asignar a "${nombreDelivery}" como delivery de la orden #${order.head.id_order}? La orden pasará a En Camino.`,
+      confirmText: "Asignar",
+      rejectText: "Cancelar",
+      onConfirm: async () => {
+        try {
+          setAssigningDelivery(true);
+          await assignDeliveryAction({
+            id_order: Number(id),
+            uid_delivery: selectedDeliveryId,
+            nombre_delivery: nombreDelivery,
+            usuario_actualiza: order.head.usuario_actualiza ?? "admin",
+          });
+
+          const updated = await getOrderByIdAction(Number(id));
+          if (updated) {
+            setOrder(updated);
+            await loadFulfillment(Number(id), 8);
+          }
+
+          mostrarAlerta("¡Delivery asignado!", `${nombreDelivery} fue asignado correctamente.`, "success");
+        } catch (e: any) {
+          mostrarAlerta("Error", e?.message ?? "No se pudo asignar el delivery.", "danger");
+        } finally {
+          setAssigningDelivery(false);
+        }
+      },
+    });
+  };
+
   const summary = useMemo(() => {
     if (!order) return { itemsCount: 0, subtotal: 0, taxes: 0, total: 0 };
     const itemsCount = order.det.reduce((acc, it) => acc + Number(it.qty), 0);
@@ -527,6 +597,45 @@ export function PageContent({ id }: PageContentProps) {
               {order.head.status ?? `#${order.head.id_status}`}
             </span>
           </p>
+
+          {order.head.id_status === 4 && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-amber-800">
+                <Truck className="w-5 h-5 shrink-0" />
+                <p className="font-semibold text-sm">Asignar delivery</p>
+              </div>
+              <p className="text-xs text-amber-700">
+                Esta orden está lista para ser asignada a un delivery. Al asignar, pasará automáticamente a <strong>En Camino</strong>.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={selectedDeliveryId}
+                  onChange={(e) => setSelectedDeliveryId(e.target.value)}
+                  disabled={assigningDelivery}
+                  className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-400/30 disabled:opacity-60"
+                >
+                  <option value="">— Selecciona un delivery —</option>
+                  {deliveryUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {`${u.nombre ?? ""} ${u.apellido ?? ""}`.trim()}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleAssignDelivery}
+                  disabled={!selectedDeliveryId || assigningDelivery}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Truck className="w-4 h-4" />
+                  {assigningDelivery ? "Asignando…" : "Asignar"}
+                </button>
+              </div>
+              {deliveryUsers.length === 0 && (
+                <p className="text-xs text-amber-600">No hay deliveries activos disponibles.</p>
+              )}
+            </div>
+          )}
 
           {isClosed ? (
             <div

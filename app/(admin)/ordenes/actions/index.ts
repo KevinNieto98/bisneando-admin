@@ -45,6 +45,7 @@ export type CreateOrderResult = {
 export type OrderHeadRow = {
   id_order: number;
   uid: string;
+  uid_delivery: string | null;
   id_status: number | null;
   id_metodo: number | null;
   id_colonia: number | null;
@@ -353,7 +354,7 @@ export async function getOrdersHeadAction(uid?: string): Promise<OrderHead[]> {
   }
 
   const selectOrders =
-    "id_order,uid,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion";
+    "id_order,uid,uid_delivery,id_status,id_metodo,id_max_log,id_colonia,qty,sub_total,isv,delivery,ajuste,total,num_factura,rtn,latitud,longitud,observacion,usuario_actualiza,fecha_creacion,fecha_actualizacion";
 
   const selectStatus = "id_status,nombre";
   const selectColonias = "id_colonia,nombre_colonia";
@@ -473,12 +474,18 @@ export async function getOrdersHeadAction(uid?: string): Promise<OrderHead[]> {
     const metodo_pago =
       row.id_metodo != null ? metodoPagoMap.get(row.id_metodo) ?? null : null;
 
+    const nombre_delivery =
+      row.uid_delivery != null && row.uid_delivery !== ""
+        ? usuarioMap.get(row.uid_delivery) ?? null
+        : null;
+
     return {
       ...row,
       status,
       nombre_colonia,
       usuario,
       metodo_pago,
+      nombre_delivery,
     };
   });
 
@@ -653,6 +660,7 @@ export type OrderHead = OrderHeadRow & {
   nombre_colonia: string | null;
   usuario: string | null;
   metodo_pago: string | null;
+  nombre_delivery: string | null;
 };
 
 
@@ -1708,4 +1716,49 @@ export async function getFulfillmentByOrderIdAndStatusAction(
 
   const data = (await res.json().catch(() => [])) as FulfillmentRow[];
   return Array.isArray(data) ? data : [];
+}
+
+/* =========================================================================
+   Acción: Asignar delivery a una orden (id_status 4 → 8)
+   ========================================================================= */
+
+export async function assignDeliveryAction(params: {
+  id_order: number;
+  uid_delivery: string;
+  nombre_delivery: string;
+  usuario_actualiza?: string | null;
+}): Promise<void> {
+  const { id_order, uid_delivery, nombre_delivery, usuario_actualiza } = params;
+
+  if (!id_order) throw new Error("Falta id_order.");
+  if (!uid_delivery) throw new Error("Debes seleccionar un delivery.");
+
+  const nowIso = new Date().toISOString();
+  const usuario = usuario_actualiza ?? "admin";
+
+  // 1) Actualizar tbl_orders_head: status 8 + uid_delivery
+  const { error: headErr } = await supabase
+    .from("tbl_orders_head")
+    .update({
+      id_status: 8,
+      uid_delivery,
+      usuario_actualiza: usuario,
+      fecha_actualizacion: nowIso,
+    })
+    .eq("id_order", id_order);
+
+  if (headErr) throw new Error(`Error al actualizar la orden: ${headErr.message}`);
+
+  // 2) Registrar en actividad
+  const { error: actErr } = await supabase
+    .from("tbl_activity_orders")
+    .insert([{
+      id_order,
+      id_status: 8,
+      usuario_actualiza: usuario,
+      observacion: `Delivery asignado: ${nombre_delivery}`,
+      fecha_actualizacion: nowIso,
+    }]);
+
+  if (actErr) throw new Error(`Error al registrar actividad: ${actErr.message}`);
 }

@@ -29,10 +29,10 @@ export async function OPTIONS(req: NextRequest) {
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  platform: z.enum(["WEB", "APP", "BODEGA"]).default("APP"),
+  platform: z.enum(["WEB", "APP", "BODEGA", "DELIVERY"]).default("APP"),
 });
 
-type Platform = "WEB" | "APP" | "BODEGA";
+type Platform = "WEB" | "APP" | "BODEGA" | "DELIVERY";
 
 async function getPerfilSeguro(
   supabase: any,
@@ -107,12 +107,14 @@ export async function POST(req: NextRequest) {
       APP: 1,
       WEB: 2,
       BODEGA: 3,
+      DELIVERY: 6,
     };
 
     const mensajeErrorByPlatform: Record<Platform, string> = {
       APP: "Error de perfilamiento.",
       WEB: "Privilegios insuficientes.",
       BODEGA: "Privilegios insuficientes.",
+      DELIVERY: "Acceso denegado. Solo para repartidores.",
     };
 
     const requiredPerfil = requiredPerfilByPlatform[platform];

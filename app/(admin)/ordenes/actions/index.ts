@@ -1279,7 +1279,7 @@ export async function updateOrderStatusByIdAction(params: {
     }
 
     // E) Todas listas → actualizar HEAD (estado global sí avanza)
-    const { error: upErr } = await supabase
+    const { data: updatedGateHead, error: upErr } = await supabase
       .from("tbl_orders_head")
       .update({
         id_status: id_status_destino,
@@ -1287,10 +1287,18 @@ export async function updateOrderStatusByIdAction(params: {
         usuario_actualiza: usuario,
         fecha_actualizacion: nowIso,
       })
-      .eq("id_order", id_order);
+      .eq("id_order", id_order)
+      .select("id_order");
 
     if (upErr) {
       throw new Error(`No se pudo actualizar encabezado: ${upErr.message}`);
+    }
+
+    if (!updatedGateHead || updatedGateHead.length === 0) {
+      throw new Error(
+        `La orden #${id_order} no fue actualizada en el gate (0 filas afectadas). ` +
+          `Puede ser un problema de permisos (RLS) o la orden no existe.`
+      );
     }
 
     // Ya insertamos activity arriba (para auditoría). Reusamos ese id_act.
@@ -1308,7 +1316,7 @@ export async function updateOrderStatusByIdAction(params: {
   // Estados NO gate (5,7, etc.) → flujo normal
   // ============================================================
 
-  const { error: upErr } = await supabase
+  const { data: updatedHead, error: upErr } = await supabase
     .from("tbl_orders_head")
     .update({
       id_status: id_status_destino,
@@ -1316,10 +1324,19 @@ export async function updateOrderStatusByIdAction(params: {
       usuario_actualiza: usuario,
       fecha_actualizacion: nowIso,
     })
-    .eq("id_order", id_order);
+    .eq("id_order", id_order)
+    .select("id_order");
 
   if (upErr) {
     throw new Error(`No se pudo actualizar encabezado: ${upErr.message}`);
+  }
+
+  // Supabase devuelve [] sin error cuando RLS bloquea silenciosamente o no hay filas
+  if (!updatedHead || updatedHead.length === 0) {
+    throw new Error(
+      `La orden #${id_order} no fue actualizada (0 filas afectadas). ` +
+        `Puede ser un problema de permisos (RLS) o la orden no existe.`
+    );
   }
 
   const { data: actData, error: actErr } = await supabase

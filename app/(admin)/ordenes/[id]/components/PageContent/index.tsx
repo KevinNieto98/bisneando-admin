@@ -147,54 +147,53 @@ async function getDeliveryUsersAction(): Promise<DeliveryUser[]> {
 
 function OrderPageSkeleton() {
   return (
-    <div className="flex justify-center items-start mb-32 px-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col w-full max-w-[1100px] animate-pulse">
-        <div className="flex items-center justify-between mb-6">
-          <div className="h-8 w-40 bg-gray-200 rounded-xl" />
+    <div className="flex justify-center items-start pb-32 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-[1400px] animate-pulse">
+        <div className="flex items-center justify-between mb-6 pt-1">
+          <div className="h-8 w-44 bg-gray-200 rounded-xl" />
+          <div className="h-7 w-28 bg-gray-200 rounded-full" />
         </div>
 
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-          <div className="h-6 w-64 bg-gray-200 rounded mb-4" />
-          <div className="h-10 w-full bg-gray-200 rounded-xl mb-4" />
-          <div className="h-20 w-full bg-gray-200 rounded-xl mb-4" />
-          <div className="h-11 w-full bg-gray-200 rounded-xl" />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mt-2">
-          <aside className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
-              <div className="h-24 w-full bg-gray-200 rounded-xl mb-4" />
-              <div className="space-y-2">
+        <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 xl:gap-8">
+          <aside className="space-y-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="h-5 w-40 bg-gray-200 rounded mb-4" />
+              <div className="space-y-3">
                 <div className="h-4 w-full bg-gray-200 rounded" />
                 <div className="h-4 w-3/4 bg-gray-200 rounded" />
                 <div className="h-4 w-2/3 bg-gray-200 rounded" />
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="h-5 w-32 bg-gray-200 rounded mb-4" />
+              <div className="space-y-2">
+                <div className="h-4 w-full bg-gray-200 rounded" />
+                <div className="h-4 w-full bg-gray-200 rounded" />
                 <div className="h-4 w-1/2 bg-gray-200 rounded" />
               </div>
-              <div className="h-11 w-full bg-gray-200 rounded-xl mt-6" />
             </div>
           </aside>
 
-          <section className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
-              <div className="space-y-4">
-                <div className="h-16 w-full bg-gray-200 rounded-xl" />
-                <div className="h-16 w-full bg-gray-200 rounded-xl" />
-                <div className="h-16 w-full bg-gray-200 rounded-xl" />
+          <div className="space-y-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="h-5 w-52 bg-gray-200 rounded mb-4" />
+              <div className="h-20 w-full bg-gray-200 rounded-xl mb-4" />
+              <div className="grid grid-cols-4 gap-2">
+                <div className="h-10 bg-gray-200 rounded-xl" />
+                <div className="h-10 bg-gray-200 rounded-xl" />
+                <div className="h-10 bg-gray-200 rounded-xl" />
+                <div className="h-10 bg-gray-200 rounded-xl" />
               </div>
             </div>
-
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
-              <div className="h-14 w-full bg-gray-200 rounded-xl" />
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="h-5 w-40 bg-gray-200 rounded mb-4" />
+              <div className="space-y-3">
+                <div className="h-14 w-full bg-gray-200 rounded-xl" />
+                <div className="h-14 w-full bg-gray-200 rounded-xl" />
+                <div className="h-14 w-full bg-gray-200 rounded-xl" />
+              </div>
             </div>
-
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
-              <div className="h-24 w-full bg-gray-200 rounded-xl" />
-            </div>
-          </section>
+          </div>
         </div>
       </div>
     </div>
@@ -288,11 +287,14 @@ export function PageContent({ id }: PageContentProps) {
     };
   }, [id]);
 
-  // Cargar deliveries cuando la orden está en status 4
+  // Cargar deliveries cuando la orden está en status 4 u 8,
+  // o cuando el selector de destino (desde status 7) apunta a 8
   useEffect(() => {
-    if (order?.head.id_status !== 4) return;
+    const s = order?.head.id_status;
+    const needsDelivery = s === 4 || s === 8 || selectedStatusId === 8;
+    if (!needsDelivery) return;
     getDeliveryUsersAction().then(setDeliveryUsers).catch(() => setDeliveryUsers([]));
-  }, [order?.head.id_status]);
+  }, [order?.head.id_status, selectedStatusId]);
 
   // Cargar catálogo de status para el select (una vez)
   useEffect(() => {
@@ -442,11 +444,11 @@ export function PageContent({ id }: PageContentProps) {
         try {
           setSaving(true);
           await handleStatusAction(mode, trimmed);
-        } catch (e) {
-          console.error(e);
+        } catch (e: any) {
+          console.error("[triggerStatusUpdate] error:", e);
           mostrarAlerta(
-            "Error",
-            "No se pudo actualizar la orden. Intenta de nuevo.",
+            "Error al actualizar",
+            e?.message ?? "No se pudo actualizar la orden. Intenta de nuevo.",
             "danger"
           );
         } finally {
@@ -573,535 +575,568 @@ export function PageContent({ id }: PageContentProps) {
   const isRejected = order.head.id_status === 6;
 
   return (
-    <div className="flex justify-center items-start mb-32 px-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col w-full max-w-[1100px]">
+    <div className="flex justify-center items-start pb-32 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-[1400px]">
         <Alert />
 
-        <div className="flex items-center justify-between mb-6">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pt-1">
           <Title
             icon={<ClipboardCheck className="w-5 h-5" />}
             title={`Orden #${order.head.id_order}`}
             subtitle="Detalle de orden"
             showBackButton
           />
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-white shadow-sm ${statusBg}`}
+          >
+            {uiStatus === "pagada" ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : uiStatus === "en_progreso" ? (
+              <Clock className="w-4 h-4" />
+            ) : (
+              <XCircle className="w-4 h-4" />
+            )}
+            {order.head.status ?? `#${order.head.id_status}`}
+          </span>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-3">
-            {isClosed ? "Estado de la orden" : "Actualizar estado de la orden"}
-          </h2>
+        {/* Layout principal: sidebar fijo izquierda + contenido derecha */}
+        <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 xl:gap-8 items-start">
 
-          <p className="text-sm text-gray-700 mb-3">
-            <span className="font-medium">Estado actual:</span>{" "}
-            <span className="font-semibold">
-              {order.head.status ?? `#${order.head.id_status}`}
-            </span>
-          </p>
+          {/* ── SIDEBAR IZQUIERDO (sticky en xl+) ── */}
+          <aside className="xl:sticky xl:top-4 space-y-5">
 
-          {order.head.id_status === 4 && (
-            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-amber-800">
-                <Truck className="w-5 h-5 shrink-0" />
-                <p className="font-semibold text-sm">Asignar delivery</p>
-              </div>
-              <p className="text-xs text-amber-700">
-                Esta orden está lista para ser asignada a un delivery. Al asignar, pasará automáticamente a <strong>En Camino</strong>.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={selectedDeliveryId}
-                  onChange={(e) => setSelectedDeliveryId(e.target.value)}
-                  disabled={assigningDelivery}
-                  className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-400/30 disabled:opacity-60"
+            {/* Tarjeta cliente */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 text-base">Información del cliente</h3>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white ${statusBg}`}
                 >
-                  <option value="">— Selecciona un delivery —</option>
-                  {deliveryUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {`${u.nombre ?? ""} ${u.apellido ?? ""}`.trim()}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleAssignDelivery}
-                  disabled={!selectedDeliveryId || assigningDelivery}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Truck className="w-4 h-4" />
-                  {assigningDelivery ? "Asignando…" : "Asignar"}
-                </button>
-              </div>
-              {deliveryUsers.length === 0 && (
-                <p className="text-xs text-amber-600">No hay deliveries activos disponibles.</p>
-              )}
-            </div>
-          )}
-
-          {isClosed ? (
-            <div
-              className={`flex flex-col md:flex-row items-center gap-4 rounded-2xl px-4 py-6 md:py-8 min-h-[140px] ${
-                isDelivered
-                  ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
-                  : "bg-rose-50 border border-rose-200 text-rose-800"
-              }`}
-            >
-              <div className="flex items-center justify-center flex-shrink-0">
-                <div
-                  className={`rounded-full p-3 md:p-4 ${
-                    isDelivered ? "bg-emerald-100" : "bg-rose-100"
-                  }`}
-                >
-                  {isDelivered ? (
-                    <CheckCircle className="w-7 h-7" />
+                  {uiStatus === "pagada" ? (
+                    <CheckCircle className="w-3 h-3" />
+                  ) : uiStatus === "en_progreso" ? (
+                    <Clock className="w-3 h-3" />
                   ) : (
-                    <XCircle className="w-7 h-7" />
+                    <XCircle className="w-3 h-3" />
                   )}
-                </div>
-              </div>
-
-              <div className="flex-1 text-center md:text-left space-y-1">
-                <p className="text-base md:text-lg font-semibold">
-                  {isDelivered ? "Orden finalizada / entregada" : "Orden rechazada"}
-                </p>
-                <p className="text-sm leading-snug">
-                  {isDelivered
-                    ? "Esta orden se encuentra finalizada. No es posible realizar más cambios sobre su flujo."
-                    : "Esta orden fue rechazada. No es posible realizar más cambios sobre su flujo."}
-                </p>
-
-                {isRejected && rejectionReason && (
-                  <div className="mt-3 rounded-xl bg-white/60 border border-rose-200 px-3 py-2 text-xs text-rose-800 text-left">
-                    <p className="font-semibold mb-1">Motivo del rechazo</p>
-                    <p className="whitespace-pre-wrap break-words">{rejectionReason}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              {isProblemStatus && (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mover a estado
-                  </label>
-                  <select
-                    value={selectedStatusId ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setSelectedStatusId(v ? Number(v) : null);
-                      if (statusSelectError) setStatusSelectError(null);
-                    }}
-                    className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm bg-white outline-none transition-all ${
-                      statusSelectError
-                        ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
-                        : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
-                    }`}
-                  >
-                    <option value="">Selecciona un estado destino...</option>
-                    {statusOptions.map((s) => (
-                      <option key={s.id_status} value={s.id_status}>
-                        #{s.id_status} - {s.nombre ?? "(sin nombre)"}
-                      </option>
-                    ))}
-                  </select>
-                  {statusSelectError && (
-                    <p className="mt-1 text-xs text-rose-600">{statusSelectError}</p>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500">
-                    Este selector solo se usa cuando la orden está en &quot;Orden con
-                    problemas&quot; (status 7). El botón &quot;Actualizar orden&quot;
-                    llevará la orden al estado elegido aquí.
-                  </p>
-                </div>
-              )}
-
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Comentario
-                </label>
-                <textarea
-                  value={comment}
-                  onChange={(e) => {
-                    setComment(e.target.value);
-                    if (commentError) setCommentError(null);
-                  }}
-                  rows={3}
-                  placeholder="Describe el motivo de la actualización..."
-                  className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm outline-none transition-all bg-white ${
-                    commentError
-                      ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
-                      : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
-                  }`}
-                  aria-invalid={!!commentError}
-                  aria-describedby={commentError ? "comment-error" : undefined}
-                />
-                {commentError && (
-                  <p id="comment-error" className="mt-1 text-xs text-rose-600">
-                    {commentError}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => triggerStatusUpdate("reject")}
-                  disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
-                    saving
-                      ? "bg-rose-300 cursor-not-allowed"
-                      : "bg-rose-600 hover:bg-rose-700"
-                  }`}
-                >
-                  <XOctagon className="w-4 h-4" />
-                  <span>Rechazar orden</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => triggerStatusUpdate("finish")}
-                  disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
-                    saving
-                      ? "bg-emerald-300 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700"
-                  }`}
-                >
-                  <CheckSquare className="w-4 h-4" />
-                  <span>Finalizar orden</span>
-                </button>
-
-                {!isProblemStatus && (
-                  <button
-                    type="button"
-                    onClick={() => triggerStatusUpdate("problem")}
-                    disabled={saving}
-                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
-                      saving
-                        ? "bg-amber-300 cursor-not-allowed"
-                        : "bg-amber-500 hover:bg-amber-600"
-                    }`}
-                  >
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>Orden con problemas</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => triggerStatusUpdate("next")}
-                  disabled={saving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white ${
-                    saving
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-black hover:bg-gray-800"
-                  }`}
-                >
-                  <ArrowRight className="w-4 h-4" />
-                  <span>Actualizar orden</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mt-2">
-          {/* Columna izquierda: Resumen */}
-          <aside className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-md p-6 sticky top-4">
-              <h3 className="text-xl font-semibold mb-4">Resumen de orden</h3>
-
-              <div className="rounded-2xl border border-gray-200 p-4 mb-5 text-sm">
-                <p className="font-medium mb-1">Cliente / UID</p>
-
-                <p className="text-gray-700 break-all text-xs">{order.head.uid}</p>
-
-                {(order.head as any).usuario && (
-                  <Link
-                    href={`/usuarios/${order.head.uid}`}
-                    className="mt-1 inline-flex text-sm text-blue-600 hover:underline"
-                  >
-                    {(order.head as any).usuario}
-                  </Link>
-                )}
-
-                <p className="mt-2 text-gray-600">
-                  Colonia{" "}
-                  <span className="font-medium">{order.head.nombre_colonia ?? "-"}</span>
-                </p>
-                <p className="text-gray-600">
-                  RTN: <span className="font-medium">{(order.head as any).rtn ?? "-"}</span>
-                </p>
-
-                <p className="mt-2 text-gray-600">
-                  Instrucciones de entrega:{" "}
-                  <span className="font-medium">
-                    {(order.head as any).instrucciones_entrega ??
-                      (order.head as any).instrucciones ??
-                      "-"}
-                  </span>
-                </p>
-
-                <p className="text-gray-600">
-                  Lat/Lng:{" "}
-                  <span className="font-medium">
-                    {(order.head as any).latitud ?? "-"} / {(order.head as any).longitud ?? "-"}
-                  </span>
-                </p>
-
-                {hasCoords && (
-                  <div className="mt-4">
-                    <p className="text-sm font-medium mb-2">Ubicación en mapa</p>
-                    <div className="w-full h-52 rounded-xl overflow-hidden border border-gray-200">
-                      <iframe
-                        title="Mapa de ubicación de la orden"
-                        src={`https://www.google.com/maps?q=${lat},${lng}&z=16&output=embed`}
-                        className="w-full h-full border-0"
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-y-2 text-sm">
-                <span>No. Productos</span>
-                <span className="text-right">{summary.itemsCount} artículos</span>
-                <span>Subtotal</span>
-                <span className="text-right">{currency(summary.subtotal)}</span>
-                <span>Impuestos</span>
-                <span className="text-right">{currency(summary.taxes)}</span>
-                <span className="mt-3 text-lg font-semibold">Total:</span>
-                <span className="mt-3 text-lg font-semibold text-right">
-                  {currency(summary.total)}
+                  {uiStatus === "pagada"
+                    ? "Pagada"
+                    : uiStatus === "en_progreso"
+                    ? "En Progreso"
+                    : "Rechazada"}
                 </span>
               </div>
+              <div className="px-5 py-4 space-y-2.5 text-sm">
+                {(order.head as any).usuario && (
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-gray-500 shrink-0">Cliente</span>
+                    <Link
+                      href={`/usuarios/${order.head.uid}`}
+                      className="font-semibold text-blue-600 hover:underline text-right"
+                    >
+                      {(order.head as any).usuario}
+                    </Link>
+                  </div>
+                )}
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-gray-500 shrink-0">UID</span>
+                  <span className="text-gray-700 break-all text-xs text-right font-mono">
+                    {order.head.uid}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-gray-500">Colonia</span>
+                  <span className="font-medium text-right">{order.head.nombre_colonia ?? "-"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-gray-500">RTN</span>
+                  <span className="font-medium">{(order.head as any).rtn ?? "-"}</span>
+                </div>
+                {((order.head as any).instrucciones_entrega ||
+                  (order.head as any).instrucciones) && (
+                  <div className="pt-1">
+                    <p className="text-gray-500 mb-1">Instrucciones de entrega</p>
+                    <p className="text-gray-800 text-xs bg-gray-50 rounded-xl px-3 py-2 border border-gray-100">
+                      {(order.head as any).instrucciones_entrega ??
+                        (order.head as any).instrucciones}
+                    </p>
+                  </div>
+                )}
+                {hasCoords && (
+                  <div className="flex items-center justify-between gap-2 text-xs text-gray-400">
+                    <span>Coordenadas</span>
+                    <span className="font-mono">
+                      {lat?.toFixed(5)}, {lng?.toFixed(5)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
 
-              <div className="mt-6">
-                <h4 className="text-sm font-semibold mb-2">Método de pago</h4>
-                <div className="flex items-center gap-3 rounded-2xl border border-gray-200 p-4">
+            {/* Mapa (cuando hay coordenadas) */}
+            {hasCoords && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-100">
+                  <p className="font-semibold text-gray-900 text-base">Ubicación de entrega</p>
+                </div>
+                <div className="w-full h-52">
+                  <iframe
+                    title="Mapa de ubicación de la orden"
+                    src={`https://www.google.com/maps?q=${lat},${lng}&z=16&output=embed`}
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Resumen financiero */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900 text-base">Resumen de orden</h3>
+              </div>
+              <div className="px-5 py-4 space-y-2 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>Productos</span>
+                  <span className="font-medium text-gray-900">{summary.itemsCount} artículos</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Subtotal</span>
+                  <span>{currency(summary.subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Impuestos</span>
+                  <span>{currency(summary.taxes)}</span>
+                </div>
+                <div className="flex justify-between pt-3 mt-1 border-t border-gray-100">
+                  <span className="text-base font-bold text-gray-900">Total</span>
+                  <span className="text-base font-bold text-gray-900">{currency(summary.total)}</span>
+                </div>
+              </div>
+
+              {/* Método de pago */}
+              <div className="px-5 pb-5">
+                <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
                   {payment.method === "tarjeta" ? (
-                    <CreditCard className="w-5 h-5" />
+                    <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
                   ) : (
-                    <Wallet className="w-5 h-5" />
+                    <div className="rounded-lg bg-emerald-100 p-2 text-emerald-700">
+                      <Wallet className="w-4 h-4" />
+                    </div>
                   )}
                   <div>
-                    <p className="font-semibold">
+                    <p className="font-semibold text-sm">
                       {payment.method === "tarjeta"
                         ? maskCard(payment.last4)
-                        : "Efectivo / Pago contra entrega"}
+                        : "Efectivo / Contra entrega"}
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-xs text-gray-500">
                       {payment.method === "tarjeta"
-                        ? "Solo se muestran los últimos 4 dígitos."
-                        : "Pago contra entrega."}
+                        ? "Últimos 4 dígitos"
+                        : "Pago al recibir"}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div
-                className={`mt-6 w-full flex justify-center items-center gap-2 rounded-xl py-3 text-center text-white font-medium ${statusBg}`}
-              >
-                {uiStatus === "pagada" ? (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    <span>Orden Pagada</span>
-                  </>
-                ) : uiStatus === "en_progreso" ? (
-                  <>
-                    <Clock className="w-5 h-5" />
-                    <span>Orden en Progreso</span>
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="w-5 h-5" />
-                    <span>Orden Rechazada</span>
-                  </>
-                )}
-              </div>
-
-              {uiStatus === "rechazada" && (
-                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-700">
-                  <p className="text-sm font-medium">Motivo del rechazo</p>
-                  <p className="text-sm">{rejectionReason}</p>
+              {uiStatus === "rechazada" && rejectionReason && (
+                <div className="mx-5 mb-5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-rose-700">
+                  <p className="text-xs font-semibold mb-1">Motivo del rechazo</p>
+                  <p className="text-xs">{rejectionReason}</p>
                 </div>
               )}
             </div>
           </aside>
 
-          {/* Columna derecha */}
-          <section className="lg:col-span-2 space-y-6">
-            {/* Detalle productos */}
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">Detalle de productos</h2>
+          {/* ── COLUMNA DERECHA: acciones + tablas ── */}
+          <div className="space-y-5">
 
-              {order.det.length === 0 ? (
-                <p className="text-sm text-gray-600">Esta orden no tiene detalle asociado.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="py-2 text-left font-medium text-gray-600">Producto</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Bodega</th>
-                        <th className="py-2 text-right font-medium text-gray-600">Cantidad</th>
-                        <th className="py-2 text-right font-medium text-gray-600">Precio</th>
-                        <th className="py-2 text-right font-medium text-gray-600">Subtotal</th>
-                      </tr>
-                    </thead>
+            {/* Actualizar estado */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+                {isClosed ? (
+                  isDelivered ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-rose-600" />
+                  )
+                ) : (
+                  <ArrowRight className="w-4 h-4 text-gray-500" />
+                )}
+                <h2 className="font-semibold text-gray-900 text-base">
+                  {isClosed ? "Estado de la orden" : "Actualizar estado de la orden"}
+                </h2>
+              </div>
 
-                    <tbody>
-                      {order.det.map((row: any) => (
-                        <tr key={row.id_det} className="border-b last:border-b-0">
-                          <td className="py-3">
-                            <div className="flex items-center gap-3">
-                              {row.url_imagen && (
-                                <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
-                                  <Image
-                                    src={row.url_imagen}
-                                    alt={row.nombre_producto ?? `Producto #${row.id_producto}`}
-                                    fill
-                                    sizes="56px"
-                                    className="object-cover"
-                                  />
+              <div className="px-6 py-5">
+                {/* Asignación de motorista */}
+                {(order.head.id_status === 4 || order.head.id_status === 8 || selectedStatusId === 8) && (
+                  <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-amber-800">
+                      <Truck className="w-5 h-5 shrink-0" />
+                      <p className="font-semibold text-sm">Asignar motorista</p>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                      {order.head.id_status === 8
+                        ? "Esta orden ya tiene un motorista asignado. Puedes reasignar a otro motorista si es necesario."
+                        : selectedStatusId === 8
+                        ? "Seleccionaste \"Con Motorista Asignado\" como destino. Asigna el motorista y luego confirma la actualización."
+                        : "Esta orden está lista para ser asignada a un motorista. Al asignar, pasará automáticamente a En Camino."}
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={selectedDeliveryId}
+                        onChange={(e) => setSelectedDeliveryId(e.target.value)}
+                        disabled={assigningDelivery}
+                        className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-400/30 disabled:opacity-60"
+                      >
+                        <option value="">— Selecciona un delivery —</option>
+                        {deliveryUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {`${u.nombre ?? ""} ${u.apellido ?? ""}`.trim()}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAssignDelivery}
+                        disabled={!selectedDeliveryId || assigningDelivery}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Truck className="w-4 h-4" />
+                        {assigningDelivery ? "Asignando…" : "Asignar"}
+                      </button>
+                    </div>
+                    {deliveryUsers.length === 0 && (
+                      <p className="text-xs text-amber-600">No hay deliveries activos disponibles.</p>
+                    )}
+                  </div>
+                )}
+
+                {isClosed ? (
+                  <div
+                    className={`flex flex-col sm:flex-row items-center gap-4 rounded-2xl px-5 py-6 ${
+                      isDelivered
+                        ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+                        : "bg-rose-50 border border-rose-200 text-rose-800"
+                    }`}
+                  >
+                    <div
+                      className={`flex-shrink-0 rounded-full p-3 ${
+                        isDelivered ? "bg-emerald-100" : "bg-rose-100"
+                      }`}
+                    >
+                      {isDelivered ? (
+                        <CheckCircle className="w-7 h-7" />
+                      ) : (
+                        <XCircle className="w-7 h-7" />
+                      )}
+                    </div>
+                    <div className="flex-1 text-center sm:text-left space-y-1">
+                      <p className="font-semibold text-base">
+                        {isDelivered ? "Orden finalizada / entregada" : "Orden rechazada"}
+                      </p>
+                      <p className="text-sm leading-snug opacity-80">
+                        {isDelivered
+                          ? "Esta orden se encuentra finalizada. No es posible realizar más cambios."
+                          : "Esta orden fue rechazada. No es posible realizar más cambios."}
+                      </p>
+                      {isRejected && rejectionReason && (
+                        <div className="mt-3 rounded-xl bg-white/60 border border-rose-200 px-3 py-2 text-xs text-left">
+                          <p className="font-semibold mb-0.5">Motivo del rechazo</p>
+                          <p className="whitespace-pre-wrap break-words">{rejectionReason}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {isProblemStatus && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Mover a estado
+                        </label>
+                        <select
+                          value={selectedStatusId ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSelectedStatusId(v ? Number(v) : null);
+                            if (statusSelectError) setStatusSelectError(null);
+                          }}
+                          className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm bg-white outline-none transition-all ${
+                            statusSelectError
+                              ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
+                              : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
+                          }`}
+                        >
+                          <option value="">Selecciona un estado destino...</option>
+                          {statusOptions.map((s) => (
+                            <option key={s.id_status} value={s.id_status}>
+                              #{s.id_status} - {s.nombre ?? "(sin nombre)"}
+                            </option>
+                          ))}
+                        </select>
+                        {statusSelectError && (
+                          <p className="mt-1 text-xs text-rose-600">{statusSelectError}</p>
+                        )}
+                        <p className="mt-1 text-xs text-gray-400">
+                          Selector disponible cuando la orden está en &quot;Orden con problemas&quot; (status 7).
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Comentario <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        value={comment}
+                        onChange={(e) => {
+                          setComment(e.target.value);
+                          if (commentError) setCommentError(null);
+                        }}
+                        rows={3}
+                        placeholder="Describe el motivo de la actualización..."
+                        className={`w-full rounded-2xl border px-3 py-2.5 text-sm shadow-sm outline-none transition-all bg-white resize-none ${
+                          commentError
+                            ? "border-rose-500 ring-1 ring-rose-400 focus:border-rose-500 focus:ring-rose-400"
+                            : "border-gray-300 focus:border-black focus:ring-2 focus:ring-black/10"
+                        }`}
+                        aria-invalid={!!commentError}
+                        aria-describedby={commentError ? "comment-error" : undefined}
+                      />
+                      {commentError && (
+                        <p id="comment-error" className="mt-1 text-xs text-rose-600">
+                          {commentError}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => triggerStatusUpdate("reject")}
+                        disabled={saving}
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition-colors ${
+                          saving ? "bg-rose-300 cursor-not-allowed" : "bg-rose-600 hover:bg-rose-700"
+                        }`}
+                      >
+                        <XOctagon className="w-4 h-4 shrink-0" />
+                        <span>Rechazar</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => triggerStatusUpdate("finish")}
+                        disabled={saving}
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition-colors ${
+                          saving ? "bg-emerald-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
+                        }`}
+                      >
+                        <CheckSquare className="w-4 h-4 shrink-0" />
+                        <span>Finalizar</span>
+                      </button>
+
+                      {!isProblemStatus && (
+                        <button
+                          type="button"
+                          onClick={() => triggerStatusUpdate("problem")}
+                          disabled={saving}
+                          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition-colors ${
+                            saving ? "bg-amber-300 cursor-not-allowed" : "bg-amber-500 hover:bg-amber-600"
+                          }`}
+                        >
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span>Problemas</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => triggerStatusUpdate("next")}
+                        disabled={saving}
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition-colors ${
+                          saving ? "bg-gray-400 cursor-not-allowed" : "bg-gray-900 hover:bg-gray-700"
+                        }`}
+                      >
+                        <ArrowRight className="w-4 h-4 shrink-0" />
+                        <span>Actualizar</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Detalle de productos */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-900 text-base">Detalle de productos</h2>
+              </div>
+              <div className="px-6 py-5">
+                {order.det.length === 0 ? (
+                  <p className="text-sm text-gray-500">Esta orden no tiene detalle asociado.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-100">
+                          <th className="pb-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Producto</th>
+                          <th className="pb-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Bodega</th>
+                          <th className="pb-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant.</th>
+                          <th className="pb-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Precio</th>
+                          <th className="pb-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {order.det.map((row: any) => (
+                          <tr key={row.id_det} className="border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50 transition-colors">
+                            <td className="py-3">
+                              <div className="flex items-center gap-3">
+                                {row.url_imagen && (
+                                  <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                                    <Image
+                                      src={row.url_imagen}
+                                      alt={row.nombre_producto ?? `Producto #${row.id_producto}`}
+                                      fill
+                                      sizes="48px"
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                )}
+                                <div className="flex flex-col">
+                                  <Link
+                                    href={`/productos/${row.id_producto}`}
+                                    className="text-sm font-semibold text-blue-600 hover:underline leading-tight"
+                                  >
+                                    {row.nombre_producto ?? `Producto #${row.id_producto}`}
+                                  </Link>
+                                  <span className="text-xs text-gray-400">ID: {row.id_producto}</span>
                                 </div>
-                              )}
-
-                              <div className="flex flex-col">
-                                <Link
-                                  href={`/productos/${row.id_producto}`}
-                                  className="text-sm font-semibold text-blue-600 hover:underline"
-                                >
-                                  {row.nombre_producto ?? `Producto #${row.id_producto}`}
-                                </Link>
-                                <span className="text-xs text-gray-500">ID: {row.id_producto}</span>
                               </div>
-                            </div>
-                          </td>
-
-                          <td className="py-3">
-                            <span className="text-gray-800">{row.bodega ?? "-"}</span>
-                          </td>
-
-                          <td className="py-3 text-right">{row.qty}</td>
-                          <td className="py-3 text-right">{currency(Number(row.precio))}</td>
-                          <td className="py-3 text-right">
-                            {currency(Number(row.sub_total ?? row.qty * row.precio))}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                            </td>
+                            <td className="py-3 text-gray-700">{row.bodega ?? "-"}</td>
+                            <td className="py-3 text-right font-medium">{row.qty}</td>
+                            <td className="py-3 text-right text-gray-600">{currency(Number(row.precio))}</td>
+                            <td className="py-3 text-right font-semibold">{currency(Number(row.sub_total ?? row.qty * row.precio))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* ✅ Fulfillment (solo status actual) */}
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-1">Fulfillment por bodega</h2>
-              <p className="text-xs text-gray-500 mb-4">
-                Mostrando únicamente registros del status actual{" "}
-                <span className="font-semibold">#{order.head.id_status ?? "-"}</span>.
-              </p>
+            {/* Fulfillment + Historial en grid 2 cols en lg+ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-              {fulfillmentLoading ? (
-                <p className="text-sm text-gray-600">Cargando fulfillment…</p>
-              ) : fulfillmentError ? (
-                <p className="text-sm text-rose-600">{fulfillmentError}</p>
-              ) : fulfillmentRows.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  No hay registros de fulfillment para este status.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="py-2 text-left font-medium text-gray-600">Bodega</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Estado</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Fecha Asignación</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Fecha Actualización</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+              {/* Fulfillment */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-900 text-base">Fulfillment por bodega</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Status actual:{" "}
+                    <span className="font-semibold text-gray-600">#{order.head.id_status ?? "-"}</span>
+                  </p>
+                </div>
+                <div className="px-5 py-4">
+                  {fulfillmentLoading ? (
+                    <p className="text-sm text-gray-500">Cargando…</p>
+                  ) : fulfillmentError ? (
+                    <p className="text-sm text-rose-600">{fulfillmentError}</p>
+                  ) : fulfillmentRows.length === 0 ? (
+                    <p className="text-sm text-gray-500">Sin registros para este status.</p>
+                  ) : (
+                    <div className="space-y-2">
                       {fulfillmentRows.map((r, idx) => (
-                        <tr key={`${r.id_bodega ?? "null"}_${idx}`} className="border-b last:border-b-0">
-                          <td className="py-2">
-                            {r.id_bodega != null ? `Bodega ${r.id_bodega}` : "-"}
-                          </td>
-                          <td className="py-2">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                r.is_used
-                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                  : "bg-amber-50 text-amber-700 border border-amber-200"
-                              }`}
-                            >
-                              {r.is_used ? "Listo" : "Pendiente"}
-                            </span>
-                          </td>
-                          <td className="py-2 whitespace-nowrap">{formatDateTime(r.created_at)}</td>
-                          <td className="py-2 whitespace-nowrap">{formatDateTime(r.updated_at)}</td>
-                        </tr>
+                        <div
+                          key={`${r.id_bodega ?? "null"}_${idx}`}
+                          className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {r.id_bodega != null ? `Bodega ${r.id_bodega}` : "-"}
+                            </p>
+                            <p className="text-xs text-gray-400">{formatDateTime(r.updated_at)}</p>
+                          </div>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              r.is_used
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
+                            }`}
+                          >
+                            {r.is_used ? "Listo" : "Pendiente"}
+                          </span>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-gray-400">
+                    Audita qué bodegas marcaron is_used=true.
+                  </p>
                 </div>
-              )}
+              </div>
 
-              <p className="mt-2 text-xs text-gray-500">
-                Esta tabla audita qué bodegas ya marcaron el paso (is_used=true) y cuándo fue la última actualización.
-              </p>
-            </div>
-
-            {/* Historial de actividad */}
-            <div className="bg-white rounded-2xl shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">Historial de actividad</h2>
-
-              {(order as any).activity?.length === 0 ? (
-                <p className="text-sm text-gray-600">Aún no hay actividades registradas.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="py-2 text-left font-medium text-gray-600">Fecha</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Status</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Usuario</th>
-                        <th className="py-2 text-left font-medium text-gray-600">Observación</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(order as any).activity.map((act: any) => (
-                        <tr key={act.id_act} className="border-b last:border-b-0">
-                          <td className="py-2 align-top whitespace-nowrap">
-                            {formatDateTime(
-                              act.fecha_actualizacion ??
-                                act.created_at ??
-                                act.fecha ??
-                                act.fechaCreacion ??
-                                null
+              {/* Historial de actividad */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-900 text-base">Historial de actividad</h2>
+                </div>
+                <div className="px-5 py-4">
+                  {(order as any).activity?.length === 0 ? (
+                    <p className="text-sm text-gray-500">Aún no hay actividades registradas.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {(order as any).activity.map((act: any, idx: number) => (
+                        <div key={act.id_act ?? idx} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <div className="w-2 h-2 rounded-full bg-gray-400 mt-1.5 shrink-0" />
+                            {idx < (order as any).activity.length - 1 && (
+                              <div className="w-px flex-1 bg-gray-200 mt-1" />
                             )}
-                          </td>
-                          <td className="py-2 align-top">
-                            {act.status ?? (act.id_status != null ? `#${act.id_status}` : "-")}
-                          </td>
-                          <td className="py-2 align-top">
-                            {act.usuario_actualiza ?? (order.head as any).usuario_actualiza ?? "-"}
-                          </td>
-                          <td className="py-2 align-top max-w-xs">
-                            <p className="text-gray-800 break-words">{act.observacion ?? "-"}</p>
-                          </td>
-                        </tr>
+                          </div>
+                          <div className="pb-3 flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                {act.status ?? (act.id_status != null ? `#${act.id_status}` : "-")}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {act.usuario_actualiza ??
+                                  (order.head as any).usuario_actualiza ??
+                                  "-"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mb-1">
+                              {formatDateTime(
+                                act.fecha_actualizacion ??
+                                  act.created_at ??
+                                  act.fecha ??
+                                  act.fechaCreacion ??
+                                  null
+                              )}
+                            </p>
+                            {act.observacion && (
+                              <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-2.5 py-1.5 border border-gray-100 break-words">
+                                {act.observacion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+
             </div>
-          </section>
+          </div>
         </div>
 
         <ConfirmDialog />
